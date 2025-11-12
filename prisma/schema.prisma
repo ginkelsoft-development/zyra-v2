@@ -10,6 +10,62 @@ datasource db {
 }
 
 // ============================================
+// AUTHENTICATION & USERS
+// ============================================
+
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  role      String   @default("user") // admin, user
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  credentials WebAuthnCredential[]
+  sessions    Session[]
+
+  @@index([email])
+  @@index([isActive])
+}
+
+model WebAuthnCredential {
+  id                String   @id @default(uuid())
+  userId            String
+  credentialId      String   @unique @db.VarChar(512) // Base64 encoded credential ID
+  publicKey         String   @db.Text // Base64 encoded public key
+  counter           Int      @default(0)
+  transports        Json?    @db.Json // Array of authenticator transports
+  deviceName        String?  // Optional device name (iPhone, MacBook, etc.)
+  createdAt         DateTime @default(now())
+  lastUsedAt        DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([credentialId])
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique @db.VarChar(512)
+  expiresAt DateTime
+  userAgent String?  @db.Text
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+}
+
+// ============================================
 // PROJECTS
 // ============================================
 
