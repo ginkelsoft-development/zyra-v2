@@ -545,6 +545,13 @@ show_summary() {
     echo ""
     echo -e "  🌐  ${GREEN}http://$SERVER_IP${NC}"
     echo ""
+    echo -e "${YELLOW}  🔐 Eerste keer? Registreer met je vingerafdruk!${NC}"
+    echo -e "     1. Open de browser"
+    echo -e "     2. Klik op 'Registreren'"
+    echo -e "     3. Vul naam en email in"
+    echo -e "     4. Scan je vingerafdruk"
+    echo -e "     5. Je bent nu ingelogd als admin!"
+    echo ""
 
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -e "${CYAN}  🔧 Nuttige Commando's:${NC}"
