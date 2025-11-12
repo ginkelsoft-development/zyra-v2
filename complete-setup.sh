@@ -95,7 +95,7 @@ show_menu() {
     echo -e "${CYAN}Dit script zal de volgende stappen uitvoeren:${NC}"
     echo ""
     echo "  1️⃣  System updates en voorbereiding"
-    echo "  2️⃣  CLI Tools installatie (GitHub CLI, Claude Code CLI, Jira CLI, Docker)"
+    echo "  2️⃣  CLI Tools installatie (GitHub CLI, Claude Code CLI, Jira CLI)"
     echo "  3️⃣  Infrastructure setup (Node.js, MySQL, Nginx, PM2)"
     echo "  4️⃣  Applicatie deployment"
     echo "  5️⃣  Service configuratie (GitHub, Slack, Email, Jira, Claude API)"
@@ -171,21 +171,6 @@ step2_cli_tools() {
         mv /tmp/jira /usr/local/bin/jira
         chmod +x /usr/local/bin/jira
         print_success "Jira CLI geïnstalleerd"
-    fi
-
-    # Docker (optioneel)
-    read -p "Wil je Docker installeren? (y/n) " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        print_step "Installeren van Docker..."
-        if ! command -v docker &> /dev/null; then
-            curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
-            sh /tmp/get-docker.sh
-            rm /tmp/get-docker.sh
-            print_success "Docker geïnstalleerd"
-        else
-            print_success "Docker al geïnstalleerd"
-        fi
     fi
 
     # Extra tools
