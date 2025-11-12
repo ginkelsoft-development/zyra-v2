@@ -20,24 +20,49 @@ export async function POST(request: NextRequest) {
     // Check if user already exists
     const existingUser = await prisma.user.findUnique({
       where: { email },
-    });
-
-    if (existingUser) {
-      return NextResponse.json(
-        { error: 'User already exists' },
-        { status: 400 }
-      );
-    }
-
-    // Create temporary user record
-    const user = await prisma.user.create({
-      data: {
-        name,
-        email,
-        role: 'user', // First user will be upgraded to admin
-        isActive: false, // Will be activated after fingerprint registration
+      include: {
+        credentials: true,
+        sessions: true,
       },
     });
+
+    let user;
+
+    if (existingUser) {
+      // If user exists but is inactive (registration not completed), delete and recreate
+      if (!existingUser.isActive) {
+        console.log('Deleting incomplete registration for:', email);
+        await prisma.user.delete({
+          where: { id: existingUser.id },
+        });
+
+        // Create fresh user record
+        user = await prisma.user.create({
+          data: {
+            name,
+            email,
+            role: 'user',
+            isActive: false,
+          },
+        });
+      } else {
+        // User is active, cannot register again
+        return NextResponse.json(
+          { error: 'User already exists and is active' },
+          { status: 400 }
+        );
+      }
+    } else {
+      // Create new user record
+      user = await prisma.user.create({
+        data: {
+          name,
+          email,
+          role: 'user',
+          isActive: false,
+        },
+      });
+    }
 
     // Check if this is the first user (make them admin)
     const userCount = await prisma.user.count();

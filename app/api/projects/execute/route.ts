@@ -58,11 +58,24 @@ export async function POST(request: NextRequest) {
     };
 
     // Load agent and service configurations from API
-    const agentsResponse = await fetch(`${request.nextUrl.origin}/api/agents`);
+    const sessionCookie = request.cookies.get('session')?.value;
+    const headers: HeadersInit = {
+      'Cookie': `session=${sessionCookie}`,
+    };
+
+    const agentsResponse = await fetch(`${request.nextUrl.origin}/api/agents`, { headers });
+    if (!agentsResponse.ok) {
+      console.error('Failed to fetch agents:', await agentsResponse.text());
+      throw new Error('Failed to load agents');
+    }
     const agentsData = await agentsResponse.json();
     const allAgents = agentsData.agents || [];
 
-    const servicesResponse = await fetch(`${request.nextUrl.origin}/api/services`);
+    const servicesResponse = await fetch(`${request.nextUrl.origin}/api/services`, { headers });
+    if (!servicesResponse.ok) {
+      console.error('Failed to fetch services:', await servicesResponse.text());
+      throw new Error('Failed to load services');
+    }
     const servicesData = await servicesResponse.json();
     const allServices = servicesData.services || [];
 

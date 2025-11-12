@@ -15,6 +15,7 @@ export async function middleware(request: NextRequest) {
     '/api/auth/register/verify',
     '/api/auth/login/options',
     '/api/auth/login/verify',
+    '/api/auth/debug/clear', // DEBUG ONLY - REMOVE IN PRODUCTION
   ];
 
   // Check if route is public

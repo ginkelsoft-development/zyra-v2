@@ -8,14 +8,22 @@ import { verifyRegistrationResponse, generateSessionToken } from '@/lib/auth/web
  */
 export async function POST(request: NextRequest) {
   try {
-    const { userId, credential, challenge, deviceName } = await request.json();
+    const body = await request.json();
+    console.log('=== REGISTRATION VERIFY REQUEST ===');
+    console.log('Body keys:', Object.keys(body));
+    console.log('Full body:', JSON.stringify(body, null, 2));
+
+    const { userId, credential, challenge, deviceName } = body;
 
     if (!userId || !credential || !challenge) {
+      console.error('Missing required fields:', { userId: !!userId, credential: !!credential, challenge: !!challenge });
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
       );
     }
+
+    console.log('Credential object:', JSON.stringify(credential, null, 2));
 
     // Verify the credential
     const verification = verifyRegistrationResponse(credential, challenge);

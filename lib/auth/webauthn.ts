@@ -119,16 +119,22 @@ export function verifyRegistrationResponse(
   counter?: number;
 } {
   try {
+    console.log('Verifying registration response:', JSON.stringify(response, null, 2));
+
     const { id, rawId, response: attestationResponse, type } = response;
 
     // Basic validation
     if (!id || !type || type !== 'public-key') {
       console.error('Invalid credential type or missing ID');
+      console.error('Received:', { id, type });
       return { verified: false };
     }
 
     if (!attestationResponse?.clientDataJSON || !attestationResponse?.attestationObject) {
       console.error('Missing attestation data');
+      console.error('attestationResponse:', attestationResponse);
+      console.error('Has clientDataJSON?', !!attestationResponse?.clientDataJSON);
+      console.error('Has attestationObject?', !!attestationResponse?.attestationObject);
       return { verified: false };
     }
 
