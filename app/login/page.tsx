@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
 export default function LoginPage() {
@@ -8,14 +8,20 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [isWebAuthnSupported, setIsWebAuthnSupported] = useState(true); // Assume supported initially
+  const [mounted, setMounted] = useState(false);
 
   // Registration form
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
 
-  // Check WebAuthn support
-  const isWebAuthnSupported = typeof window !== 'undefined' &&
-    window.PublicKeyCredential !== undefined;
+  // Check WebAuthn support client-side only
+  useEffect(() => {
+    setMounted(true);
+    setIsWebAuthnSupported(
+      typeof window !== 'undefined' && window.PublicKeyCredential !== undefined
+    );
+  }, []);
 
   /**
    * Handle biometric login
@@ -207,6 +213,15 @@ export default function LoginPage() {
       setLoading(false);
     }
   };
+
+  // Don't render until mounted (prevents hydration mismatch)
+  if (!mounted) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
+        <div className="text-white">Loading...</div>
+      </div>
+    );
+  }
 
   if (!isWebAuthnSupported) {
     return (
