@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
 import { ThemeProvider } from '@/lib/contexts/ThemeContext'
-import TopNavigation from '@/components/TopNavigation'
+import ConditionalNav from '@/components/ConditionalNav'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -23,7 +23,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
         <ThemeProvider>
-          <TopNavigation />
+          <ConditionalNav />
           <main>{children}</main>
         </ThemeProvider>
       </body>
