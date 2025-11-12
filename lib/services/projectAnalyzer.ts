@@ -18,6 +18,7 @@ export interface Project {
 export interface ProjectAnalyzer {
   addProject(sourcePath: string): Promise<Project>;
   analyzeProject(sourcePath: string): Promise<Project>;
+  createProject(name: string, type: string, description?: string): Promise<Project>;
   getProject(projectPath: string): Promise<Project | null>;
   listProjects(): Promise<Project[]>;
 }
@@ -83,6 +84,23 @@ class ProjectAnalyzerImpl implements ProjectAnalyzer {
 
   async analyzeProject(sourcePath: string): Promise<Project> {
     return this.addProject(sourcePath);
+  }
+
+  async createProject(name: string, type: string, description?: string): Promise<Project> {
+    // Create a virtual project (not backed by filesystem)
+    const project = await prisma.project.create({
+      data: {
+        name,
+        path: `/virtual/${name.toLowerCase().replace(/\s+/g, '-')}`,
+      },
+      include: { agentConfigs: true },
+    });
+
+    return {
+      name: project.name,
+      path: project.path,
+      agents: [],
+    };
   }
 
   async getProject(projectPath: string): Promise<Project | null> {
