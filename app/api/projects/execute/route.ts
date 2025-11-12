@@ -900,7 +900,7 @@ async function executeService(
         const excludeLabels: string[] = [];
 
         if (labels) {
-          labels.split(',').forEach(label => {
+          labels.split(',').forEach((label: string) => {
             const trimmed = label.trim();
             if (trimmed.startsWith('!')) {
               // Exclude label (remove the ! prefix)
