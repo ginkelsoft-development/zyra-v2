@@ -1,0 +1,290 @@
+// Prisma Schema for Zyra Orchestrator Database
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// PROJECTS
+// ============================================
+
+model Project {
+  id        String   @id @default(uuid())
+  name      String
+  path      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  workflows             Workflow[]
+  agentConfigs          AgentConfig[]
+  serviceConfigs        ServiceConfig[]
+  serviceCategoryConfigs ServiceCategoryConfig[]
+  workflowExecutions    WorkflowExecution[]
+
+  @@index([path])
+}
+
+// ============================================
+// WORKFLOWS
+// ============================================
+
+model Workflow {
+  id          String   @id @default(uuid())
+  name        String
+  description String?  @db.Text
+  projectPath String
+  enabled     Boolean  @default(true)
+  isDefault   Boolean  @default(false)
+  lastRun     DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  project    Project           @relation(fields: [projectPath], references: [path], onDelete: Cascade)
+  nodes      WorkflowNode[]
+  edges      WorkflowEdge[]
+  triggers   WorkflowTrigger[]
+  executions WorkflowExecution[]
+
+  @@index([projectPath])
+  @@index([enabled])
+}
+
+model WorkflowNode {
+  id           String  @id @default(uuid())
+  workflowId   String
+  nodeId       String  // React Flow node ID
+  agentId      String?
+  agentRole    String? // Optional since service nodes don't have roles
+  agentName    String?
+  serviceId    String?
+  serviceName  String?
+  nodeType     String  @default("agent") // agent or service
+  positionX    Float
+  positionY    Float
+  customPrompt String? @db.Text
+
+  // Relations
+  workflow        Workflow      @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  sourceEdges     WorkflowEdge[] @relation("SourceNode")
+  targetEdges     WorkflowEdge[] @relation("TargetNode")
+
+  @@unique([workflowId, nodeId])
+  @@index([workflowId])
+}
+
+model WorkflowEdge {
+  id         String  @id @default(uuid())
+  workflowId String
+  edgeId     String  // React Flow edge ID
+  source     String  // nodeId
+  target     String  // nodeId
+  label      String?
+
+  // Relations
+  workflow       Workflow         @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  sourceNode     WorkflowNode     @relation("SourceNode", fields: [workflowId, source], references: [workflowId, nodeId], onDelete: Cascade)
+  targetNode     WorkflowNode     @relation("TargetNode", fields: [workflowId, target], references: [workflowId, nodeId], onDelete: Cascade)
+  edgeConditions EdgeCondition[]
+
+  @@unique([workflowId, edgeId])
+  @@index([workflowId])
+}
+
+model EdgeCondition {
+  id           String  @id @default(uuid())
+  workflowId   String
+  edgeId       String
+  conditionType String // success, failure, variable
+  variableName String?
+  operator     String? // equals, notEquals, contains, greaterThan, etc.
+  value        String? @db.Text
+
+  // Relations
+  edge WorkflowEdge @relation(fields: [workflowId, edgeId], references: [workflowId, edgeId], onDelete: Cascade)
+
+  @@unique([workflowId, edgeId])
+  @@index([edgeId])
+}
+
+model WorkflowTrigger {
+  id          String  @id @default(uuid())
+  workflowId  String
+  triggerType String  // manual, git-commit, git-push, scheduled, file-change
+  schedule    String? // cron expression
+  filePattern String?
+  branch      String?
+
+  // Relations
+  workflow Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@index([workflowId])
+}
+
+// ============================================
+// AGENT & SERVICE CONFIGURATIONS
+// ============================================
+
+model AgentConfig {
+  id          String   @id @default(uuid())
+  projectPath String
+  nodeId      String   // Unique per workflow node
+  agentId     String
+  configValues Json    @db.Json // Store as JSON object
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  project Project @relation(fields: [projectPath], references: [path], onDelete: Cascade)
+
+  @@unique([projectPath, nodeId])
+  @@index([projectPath])
+  @@index([agentId])
+}
+
+model ServiceConfig {
+  id          String   @id @default(uuid())
+  projectPath String
+  nodeId      String   // Unique per workflow node instance
+  serviceId   String
+  configValues Json    @db.Json // Store as JSON object
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  project Project @relation(fields: [projectPath], references: [path], onDelete: Cascade)
+
+  @@unique([projectPath, nodeId])
+  @@index([projectPath])
+  @@index([serviceId])
+}
+
+model ServiceCategoryConfig {
+  id           String   @id @default(uuid())
+  projectPath  String
+  categoryId   String   // github, slack, email, etc.
+  configValues Json     @db.Json // Store as JSON object
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  project Project @relation(fields: [projectPath], references: [path], onDelete: Cascade)
+
+  @@unique([projectPath, categoryId])
+  @@index([projectPath])
+  @@index([categoryId])
+}
+
+// ============================================
+// CUSTOM AGENTS
+// ============================================
+
+model CustomAgent {
+  id              String   @id @default(uuid())
+  name            String
+  role            String
+  emoji           String
+  color           String
+  description     String   @db.Text
+  systemPrompt    String   @db.Text
+  capabilities    Json     @db.Json // Array of strings
+  tools           Json     @db.Json // Array of strings
+  model           String   @default("sonnet") // sonnet, opus, haiku
+  category        String   @default("custom")
+  configVariables Json?    @db.Json // Array of config variable objects
+  isBuiltIn       Boolean  @default(false) // Built-in agents vs custom
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([category])
+  @@index([isBuiltIn])
+}
+
+// ============================================
+// WORKFLOW EXECUTIONS & LOGS
+// ============================================
+
+model WorkflowExecution {
+  id          String    @id @default(uuid())
+  workflowId  String
+  projectPath String
+  status      String    // running, completed, failed, cancelled
+  trigger     String    // manual, automatic
+  triggerType String?
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+  errorMessage String?  @db.Text
+
+  // Relations
+  workflow Workflow     @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  project  Project      @relation(fields: [projectPath], references: [path], onDelete: Cascade)
+  logs     ExecutionLog[]
+  nodeResults ExecutionNodeResult[]
+
+  @@index([workflowId])
+  @@index([projectPath])
+  @@index([status])
+  @@index([startedAt])
+}
+
+model ExecutionLog {
+  id          String   @id @default(uuid())
+  executionId String
+  nodeId      String?
+  agentName   String?
+  level       String   // info, warning, error, success
+  message     String   @db.Text
+  timestamp   DateTime @default(now())
+
+  // Relations
+  execution WorkflowExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@index([executionId])
+  @@index([timestamp])
+}
+
+model ExecutionNodeResult {
+  id          String   @id @default(uuid())
+  executionId String
+  nodeId      String
+  agentName   String?
+  agentRole   String
+  status      String   // pending, running, completed, failed
+  output      String?  @db.Text
+  data        Json?    @db.Json // Structured data output
+  error       String?  @db.Text
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  // Relations
+  execution WorkflowExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@index([executionId])
+  @@index([nodeId])
+}
+
+// ============================================
+// EXECUTION HISTORY (for UI display)
+// ============================================
+
+model ExecutionHistory {
+  id           String    @id @default(uuid())
+  workflowId   String
+  workflowName String
+  projectPath  String
+  status       String    // running, completed, failed, cancelled
+  startTime    DateTime
+  endTime      DateTime?
+  duration     Int?      // in milliseconds
+  nodeResults  Json      @db.Json // Array of node results
+
+  @@index([workflowId])
+  @@index([projectPath])
+  @@index([startTime])
+}

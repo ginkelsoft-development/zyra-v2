@@ -1,0 +1,572 @@
+/**
+ * Workflow Management Service
+ * Save, load, and execute project workflows
+ */
+
+import * as fs from 'fs/promises';
+import * as path from 'path';
+
+export interface WorkflowNode {
+  id: string;
+  agentId: string;
+  agentRole: string;
+  position: { x: number; y: number };
+  serviceId?: string; // For service nodes
+  serviceName?: string; // For service nodes
+}
+
+export interface WorkflowEdge {
+  id: string;
+  source: string;
+  target: string;
+}
+
+export interface WorkflowTrigger {
+  type: 'manual' | 'git-commit' | 'git-push' | 'scheduled' | 'file-change';
+  config?: {
+    schedule?: string; // cron expression
+    filePattern?: string; // glob pattern
+    branch?: string;
+  };
+}
+
+export interface SavedWorkflow {
+  id: string;
+  name: string;
+  description?: string;
+  projectPath: string;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  triggers: WorkflowTrigger[];
+  customPrompts?: Record<string, string>; // Node ID -> Custom prompt
+  createdAt: string;
+  updatedAt: string;
+  lastRun?: string;
+  enabled: boolean;
+  isDefault?: boolean; // Default workflow for this project
+}
+
+export interface WorkflowExecution {
+  id: string;
+  workflowId: string;
+  projectPath: string;
+  startedAt: string;
+  completedAt?: string;
+  status: 'running' | 'completed' | 'failed' | 'cancelled';
+  trigger: 'manual' | 'automatic';
+  triggerType?: string;
+  results: Array<{
+    agent: string;
+    status: 'pending' | 'running' | 'completed' | 'failed';
+    output?: string;
+    error?: string;
+  }>;
+}
+
+export interface WorkflowTemplateVariable {
+  key: string;
+  label: string;
+  type: 'text' | 'email' | 'select' | 'multiselect';
+  description: string;
+  required: boolean;
+  defaultValue?: string;
+  options?: string[];
+  placeholder?: string;
+}
+
+export interface WorkflowTemplate {
+  id: string;
+  name: string;
+  description: string;
+  category: 'github' | 'ci-cd' | 'monitoring' | 'notifications' | 'custom';
+  icon: string;
+  color: string;
+  agents: Array<{
+    agentId: string;
+    role: string;
+    position: { x: number; y: number };
+    configRequired?: string[]; // Which config vars this agent needs
+  }>;
+  edges: Array<{
+    source: string;
+    target: string;
+  }>;
+  variables: WorkflowTemplateVariable[];
+  triggers?: WorkflowTrigger[];
+}
+
+export class WorkflowManager {
+  private workflowsDir: string;
+  private executionsDir: string;
+
+  constructor() {
+    const homeDir = process.env.HOME || '';
+    this.workflowsDir = path.join(homeDir, '.claude', 'workflows');
+    this.executionsDir = path.join(homeDir, '.claude', 'workflow-executions');
+  }
+
+  /**
+   * Get workflow templates
+   */
+  getWorkflowTemplates(): WorkflowTemplate[] {
+    return [
+      {
+        id: 'github-automated-issue-resolution',
+        name: 'GitHub Automated Issue Resolution',
+        description: 'Complete automated flow: Fetch issues → Create branch → Agent fixes → Review → Test → Commit → PR → Update issue → Notify via Slack',
+        category: 'github',
+        icon: '🤖',
+        color: '#238636',
+        agents: [
+          {
+            agentId: 'service-github-issues', // GitHub Issues Service
+            role: 'GitHub Issues Fetcher',
+            position: { x: 400, y: 150 },
+            configRequired: ['github_token', 'repository', 'issue_labels']
+          },
+          {
+            agentId: 'service-github-branch', // GitHub Branch Manager Service
+            role: 'Branch Manager',
+            position: { x: 400, y: 300 },
+            configRequired: ['base_branch', 'branch_type']
+          },
+          {
+            agentId: '3', // Feature Developer (executed based on label)
+            role: 'Feature Developer',
+            position: { x: 200, y: 450 },
+            configRequired: []
+          },
+          {
+            agentId: '7', // Bug Fixer (executed based on label)
+            role: 'Bug Fixer',
+            position: { x: 400, y: 450 },
+            configRequired: []
+          },
+          {
+            agentId: '2', // Performance Developer (executed based on label)
+            role: 'Performance Developer',
+            position: { x: 600, y: 450 },
+            configRequired: []
+          },
+          {
+            agentId: '8', // Code Reviewer
+            role: 'Code Reviewer',
+            position: { x: 400, y: 600 },
+            configRequired: []
+          },
+          {
+            agentId: '6', // Test Runner
+            role: 'Test Runner',
+            position: { x: 400, y: 750 },
+            configRequired: []
+          },
+          {
+            agentId: 'service-github-commit', // GitHub Committer Service
+            role: 'Git Committer',
+            position: { x: 400, y: 900 },
+            configRequired: ['commit_message', 'auto_push']
+          },
+          {
+            agentId: 'service-github-pr', // GitHub PR Creator Service
+            role: 'PR Creator',
+            position: { x: 400, y: 1050 },
+            configRequired: ['base_branch', 'pr_title']
+          },
+          {
+            agentId: 'service-github-issue-updater', // GitHub Issue Updater Service
+            role: 'Issue Updater',
+            position: { x: 400, y: 1200 },
+            configRequired: ['add_label', 'add_comment']
+          },
+          {
+            agentId: 'service-slack-webhook', // Slack Notifier Service
+            role: 'Slack Notifier',
+            position: { x: 400, y: 1350 },
+            configRequired: ['webhook_url', 'message_template']
+          }
+        ],
+        edges: [
+          // Start → GitHub Issues Service
+          { source: 'start', target: 'service-github-issues' },
+
+          // GitHub Issues → Branch Manager
+          { source: 'service-github-issues', target: 'service-github-branch' },
+
+          // Branch Manager → Developer Agents (parallel, based on label)
+          { source: 'service-github-branch', target: 'agent-feature-developer' },
+          { source: 'service-github-branch', target: 'agent-bug-fixer' },
+          { source: 'service-github-branch', target: 'agent-performance-developer' },
+
+          // All Developers → Code Reviewer
+          { source: 'agent-feature-developer', target: 'agent-code-reviewer' },
+          { source: 'agent-bug-fixer', target: 'agent-code-reviewer' },
+          { source: 'agent-performance-developer', target: 'agent-code-reviewer' },
+
+          // Code Reviewer → Test Runner
+          { source: 'agent-code-reviewer', target: 'agent-test-runner' },
+
+          // Test Runner → Git Committer
+          { source: 'agent-test-runner', target: 'service-github-commit' },
+
+          // Git Committer → PR Creator
+          { source: 'service-github-commit', target: 'service-github-pr' },
+
+          // PR Creator → Issue Updater
+          { source: 'service-github-pr', target: 'service-github-issue-updater' },
+
+          // Issue Updater → Slack Notifier
+          { source: 'service-github-issue-updater', target: 'service-slack-webhook' }
+        ],
+        variables: [
+          {
+            key: 'github_token',
+            label: 'GitHub Personal Access Token',
+            type: 'text',
+            description: 'Token voor toegang tot GitHub API (met repo permissies)',
+            required: true,
+            placeholder: 'ghp_...'
+          },
+          {
+            key: 'repository',
+            label: 'GitHub Repository',
+            type: 'text',
+            description: 'Repository in formaat owner/repo',
+            required: true,
+            placeholder: 'username/repository'
+          },
+          {
+            key: 'issue_labels',
+            label: 'Issue Labels Filter',
+            type: 'text',
+            description: 'Alleen issues met deze labels verwerken (komma gescheiden)',
+            required: false,
+            placeholder: 'feature-developer,bug-fixer,performance-developer',
+            defaultValue: 'feature-developer,bug-fixer'
+          },
+          {
+            key: 'issue_state',
+            label: 'Issue State',
+            type: 'select',
+            description: 'Status van issues om op te halen',
+            required: true,
+            options: ['open', 'closed', 'all'],
+            defaultValue: 'open'
+          },
+          {
+            key: 'base_branch',
+            label: 'Base Branch',
+            type: 'text',
+            description: 'Base branch om van te branchen en PR naar te maken',
+            required: true,
+            options: ['main', 'master', 'develop'],
+            defaultValue: 'main',
+            placeholder: 'main'
+          },
+          {
+            key: 'branch_type',
+            label: 'Branch Type',
+            type: 'select',
+            description: 'Type branch prefix (fix of feature)',
+            required: true,
+            options: ['feature', 'fix', 'hotfix'],
+            defaultValue: 'fix'
+          },
+          {
+            key: 'commit_message',
+            label: 'Commit Message Template',
+            type: 'text',
+            description: 'Template voor commit message (gebruik {issue_number} en {issue_title})',
+            required: false,
+            defaultValue: 'fix: resolve issue #{issue_number}',
+            placeholder: 'fix: resolve issue #{issue_number}'
+          },
+          {
+            key: 'pr_title',
+            label: 'PR Title Template',
+            type: 'text',
+            description: 'Template voor PR titel (gebruik {issue_number} en {issue_title})',
+            required: false,
+            defaultValue: 'Fix #{issue_number}: {issue_title}',
+            placeholder: 'Fix #{issue_number}: {issue_title}'
+          },
+          {
+            key: 'pr_body_template',
+            label: 'PR Body Template',
+            type: 'text',
+            description: 'Template voor PR beschrijving',
+            required: false,
+            defaultValue: 'Closes #{issue_number}',
+            placeholder: 'Closes #{issue_number}\n\n## Changes\n{agent_summary}'
+          },
+          {
+            key: 'review_label',
+            label: 'Review Label',
+            type: 'text',
+            description: 'Label om toe te voegen aan issue na PR creatie',
+            required: false,
+            defaultValue: 'in-review',
+            placeholder: 'in-review'
+          },
+          {
+            key: 'slack_webhook_url',
+            label: 'Slack Webhook URL',
+            type: 'text',
+            description: 'Slack webhook URL voor notificaties',
+            required: true,
+            placeholder: 'https://hooks.slack.com/services/...'
+          },
+          {
+            key: 'slack_message_template',
+            label: 'Slack Message Template',
+            type: 'text',
+            description: 'Template voor Slack bericht (gebruik {issue_number}, {pr_url})',
+            required: false,
+            defaultValue: '✅ Issue #{issue_number} resolved!\nPR: {pr_url}',
+            placeholder: '✅ Issue #{issue_number} resolved!'
+          }
+        ],
+        triggers: [
+          {
+            type: 'scheduled',
+            config: {
+              schedule: '*/15 * * * *' // Every 15 minutes
+            }
+          }
+        ]
+      }
+    ];
+  }
+
+  /**
+   * Save a workflow
+   */
+  async saveWorkflow(workflow: Omit<SavedWorkflow, 'id' | 'createdAt' | 'updatedAt'>): Promise<SavedWorkflow> {
+    await fs.mkdir(this.workflowsDir, { recursive: true });
+
+    const existingWorkflows = await this.loadWorkflowsForProject(workflow.projectPath);
+    const existing = existingWorkflows.find(w => w.name === workflow.name);
+
+    const savedWorkflow: SavedWorkflow = {
+      ...workflow,
+      id: existing?.id || `wf-${Date.now()}`,
+      createdAt: existing?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const filename = `${savedWorkflow.id}.json`;
+    const filepath = path.join(this.workflowsDir, filename);
+
+    await fs.writeFile(filepath, JSON.stringify(savedWorkflow, null, 2), 'utf-8');
+
+    return savedWorkflow;
+  }
+
+  /**
+   * Load all workflows for a project
+   */
+  async loadWorkflowsForProject(projectPath: string): Promise<SavedWorkflow[]> {
+    try {
+      await fs.mkdir(this.workflowsDir, { recursive: true });
+      const files = await fs.readdir(this.workflowsDir);
+
+      const workflows: SavedWorkflow[] = [];
+
+      for (const file of files) {
+        if (!file.endsWith('.json')) continue;
+
+        const filepath = path.join(this.workflowsDir, file);
+        const content = await fs.readFile(filepath, 'utf-8');
+        const workflow: SavedWorkflow = JSON.parse(content);
+
+        if (workflow.projectPath === projectPath) {
+          workflows.push(workflow);
+        }
+      }
+
+      return workflows.sort((a, b) =>
+        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+      );
+    } catch (error) {
+      return [];
+    }
+  }
+
+  /**
+   * Get the default workflow for a project
+   */
+  async getDefaultWorkflow(projectPath: string): Promise<SavedWorkflow | null> {
+    const workflows = await this.loadWorkflowsForProject(projectPath);
+    return workflows.find(w => w.isDefault) || null;
+  }
+
+  /**
+   * Set a workflow as default for its project (unsets other defaults)
+   */
+  async setDefaultWorkflow(workflowId: string): Promise<void> {
+    const workflow = await this.loadWorkflow(workflowId);
+    if (!workflow) throw new Error('Workflow not found');
+
+    // Get all workflows for this project
+    const workflows = await this.loadWorkflowsForProject(workflow.projectPath);
+
+    // Unset all other defaults
+    for (const w of workflows) {
+      if (w.id === workflowId) {
+        w.isDefault = true;
+      } else if (w.isDefault) {
+        w.isDefault = false;
+      }
+
+      const filepath = path.join(this.workflowsDir, `${w.id}.json`);
+      await fs.writeFile(filepath, JSON.stringify(w, null, 2), 'utf-8');
+    }
+  }
+
+  /**
+   * Load a specific workflow
+   */
+  async loadWorkflow(workflowId: string): Promise<SavedWorkflow | null> {
+    try {
+      const filepath = path.join(this.workflowsDir, `${workflowId}.json`);
+      const content = await fs.readFile(filepath, 'utf-8');
+      return JSON.parse(content);
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
+   * Delete a workflow
+   */
+  async deleteWorkflow(workflowId: string): Promise<void> {
+    const filepath = path.join(this.workflowsDir, `${workflowId}.json`);
+    await fs.unlink(filepath);
+  }
+
+  /**
+   * Update workflow enabled status
+   */
+  async toggleWorkflow(workflowId: string, enabled: boolean): Promise<void> {
+    const workflow = await this.loadWorkflow(workflowId);
+    if (!workflow) throw new Error('Workflow not found');
+
+    workflow.enabled = enabled;
+    workflow.updatedAt = new Date().toISOString();
+
+    const filepath = path.join(this.workflowsDir, `${workflowId}.json`);
+    await fs.writeFile(filepath, JSON.stringify(workflow, null, 2), 'utf-8');
+  }
+
+  /**
+   * Record workflow execution
+   */
+  async recordExecution(execution: Omit<WorkflowExecution, 'id'>): Promise<WorkflowExecution> {
+    await fs.mkdir(this.executionsDir, { recursive: true });
+
+    const savedExecution: WorkflowExecution = {
+      ...execution,
+      id: `exec-${Date.now()}`,
+    };
+
+    const filename = `${savedExecution.id}.json`;
+    const filepath = path.join(this.executionsDir, filename);
+
+    await fs.writeFile(filepath, JSON.stringify(savedExecution, null, 2), 'utf-8');
+
+    // Update workflow's lastRun
+    const workflow = await this.loadWorkflow(execution.workflowId);
+    if (workflow) {
+      workflow.lastRun = savedExecution.startedAt;
+      await this.saveWorkflow(workflow);
+    }
+
+    return savedExecution;
+  }
+
+  /**
+   * Get workflow execution history
+   */
+  async getExecutionHistory(workflowId: string, limit: number = 10): Promise<WorkflowExecution[]> {
+    try {
+      await fs.mkdir(this.executionsDir, { recursive: true });
+      const files = await fs.readdir(this.executionsDir);
+
+      const executions: WorkflowExecution[] = [];
+
+      for (const file of files) {
+        if (!file.endsWith('.json')) continue;
+
+        const filepath = path.join(this.executionsDir, file);
+        const content = await fs.readFile(filepath, 'utf-8');
+        const execution: WorkflowExecution = JSON.parse(content);
+
+        if (execution.workflowId === workflowId) {
+          executions.push(execution);
+        }
+      }
+
+      return executions
+        .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
+        .slice(0, limit);
+    } catch (error) {
+      return [];
+    }
+  }
+
+  /**
+   * Get all executions for a project
+   */
+  async getProjectExecutions(projectPath: string, limit: number = 20): Promise<WorkflowExecution[]> {
+    try {
+      await fs.mkdir(this.executionsDir, { recursive: true });
+      const files = await fs.readdir(this.executionsDir);
+
+      const executions: WorkflowExecution[] = [];
+
+      for (const file of files) {
+        if (!file.endsWith('.json')) continue;
+
+        const filepath = path.join(this.executionsDir, file);
+        const content = await fs.readFile(filepath, 'utf-8');
+        const execution: WorkflowExecution = JSON.parse(content);
+
+        if (execution.projectPath === projectPath) {
+          executions.push(execution);
+        }
+      }
+
+      return executions
+        .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
+        .slice(0, limit);
+    } catch (error) {
+      return [];
+    }
+  }
+
+  /**
+   * Setup git hooks for a project
+   */
+  async setupGitHooks(projectPath: string, workflowId: string, hookType: 'pre-commit' | 'post-commit' | 'pre-push'): Promise<void> {
+    const hooksDir = path.join(projectPath, '.git', 'hooks');
+    const hookPath = path.join(hooksDir, hookType);
+
+    // Create hook script
+    const hookScript = `#!/bin/bash
+# Auto-generated by Visual Team Orchestrator
+# Workflow ID: ${workflowId}
+
+# Run workflow
+curl -X POST http://localhost:3000/api/workflows/${workflowId}/execute \\
+  -H "Content-Type: application/json" \\
+  -d '{"trigger":"git-${hookType}"}' \\
+  > /dev/null 2>&1 &
+
+exit 0
+`;
+
+    await fs.mkdir(hooksDir, { recursive: true });
+    await fs.writeFile(hookPath, hookScript, { mode: 0o755 });
+  }
+}
+
+export const workflowManager = new WorkflowManager();

@@ -1,0 +1,214 @@
+/**
+ * Service Category Manager
+ *
+ * Manages project-specific configuration for service categories.
+ * Each project can have its own configuration for GitHub, Slack, Email, etc.
+ */
+
+import fs from 'fs';
+import path from 'path';
+import { ServiceCategory, getServiceCategory } from './serviceCategories';
+
+export interface CategoryConfiguration {
+  categoryId: string;
+  projectPath: string;
+  configValues: Record<string, string>;
+  updatedAt: string;
+}
+
+class ServiceCategoryManager {
+  private configDir: string;
+
+  constructor() {
+    // Store category configs in ~/.insurance-orchestrator/category-configs/
+    this.configDir = path.join(process.env.HOME || '', '.insurance-orchestrator', 'category-configs');
+    this.ensureConfigDir();
+  }
+
+  private ensureConfigDir(): void {
+    if (!fs.existsSync(this.configDir)) {
+      fs.mkdirSync(this.configDir, { recursive: true });
+    }
+  }
+
+  /**
+   * Get the file path for a specific project's category config
+   */
+  private getConfigFilePath(projectPath: string, categoryId: string): string {
+    // Create a safe filename from the project path
+    const safeProjectName = Buffer.from(projectPath).toString('base64').replace(/[/+=]/g, '_');
+    return path.join(this.configDir, `${safeProjectName}_${categoryId}.json`);
+  }
+
+  /**
+   * Get category configuration for a specific project
+   */
+  getCategoryConfig(projectPath: string, categoryId: string): CategoryConfiguration | null {
+    try {
+      const filePath = this.getConfigFilePath(projectPath, categoryId);
+
+      if (!fs.existsSync(filePath)) {
+        return null;
+      }
+
+      const data = fs.readFileSync(filePath, 'utf-8');
+      return JSON.parse(data);
+    } catch (error) {
+      console.error(`Error reading category config for ${categoryId} in ${projectPath}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Save category configuration for a specific project
+   */
+  saveCategoryConfig(projectPath: string, categoryId: string, configValues: Record<string, string>): CategoryConfiguration {
+    try {
+      const config: CategoryConfiguration = {
+        categoryId,
+        projectPath,
+        configValues,
+        updatedAt: new Date().toISOString(),
+      };
+
+      const filePath = this.getConfigFilePath(projectPath, categoryId);
+      fs.writeFileSync(filePath, JSON.stringify(config, null, 2), 'utf-8');
+
+      return config;
+    } catch (error) {
+      console.error(`Error saving category config for ${categoryId} in ${projectPath}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all category configurations for a specific project
+   */
+  getAllCategoryConfigs(projectPath: string): CategoryConfiguration[] {
+    try {
+      const safeProjectName = Buffer.from(projectPath).toString('base64').replace(/[/+=]/g, '_');
+      const files = fs.readdirSync(this.configDir);
+
+      const configs: CategoryConfiguration[] = [];
+
+      for (const file of files) {
+        if (file.startsWith(safeProjectName) && file.endsWith('.json')) {
+          const filePath = path.join(this.configDir, file);
+          const data = fs.readFileSync(filePath, 'utf-8');
+          configs.push(JSON.parse(data));
+        }
+      }
+
+      return configs;
+    } catch (error) {
+      console.error(`Error reading all category configs for ${projectPath}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Delete category configuration for a specific project
+   */
+  deleteCategoryConfig(projectPath: string, categoryId: string): boolean {
+    try {
+      const filePath = this.getConfigFilePath(projectPath, categoryId);
+
+      if (!fs.existsSync(filePath)) {
+        return false;
+      }
+
+      fs.unlinkSync(filePath);
+      return true;
+    } catch (error) {
+      console.error(`Error deleting category config for ${categoryId} in ${projectPath}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Get config value with fallback to default
+   */
+  getConfigValue(
+    projectPath: string,
+    categoryId: string,
+    key: string,
+    defaultValue?: string
+  ): string | undefined {
+    const config = this.getCategoryConfig(projectPath, categoryId);
+
+    if (config && config.configValues[key]) {
+      return config.configValues[key];
+    }
+
+    // Fallback to category default value
+    const category = getServiceCategory(categoryId);
+    if (category) {
+      const variable = category.configVariables.find(v => v.key === key);
+      if (variable?.defaultValue) {
+        return variable.defaultValue;
+      }
+    }
+
+    return defaultValue;
+  }
+
+  /**
+   * Check if a category is configured for a project
+   */
+  isCategoryConfigured(projectPath: string, categoryId: string): boolean {
+    const config = this.getCategoryConfig(projectPath, categoryId);
+
+    if (!config) {
+      return false;
+    }
+
+    // Check if all required variables are set
+    const category = getServiceCategory(categoryId);
+    if (!category) {
+      return false;
+    }
+
+    const requiredVars = category.configVariables.filter(v => v.required);
+
+    for (const variable of requiredVars) {
+      if (!config.configValues[variable.key]) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Get missing required configuration variables for a category
+   */
+  getMissingRequiredVars(projectPath: string, categoryId: string): string[] {
+    const config = this.getCategoryConfig(projectPath, categoryId);
+    const category = getServiceCategory(categoryId);
+
+    if (!category) {
+      return [];
+    }
+
+    const requiredVars = category.configVariables.filter(v => v.required);
+    const missing: string[] = [];
+
+    for (const variable of requiredVars) {
+      if (!config?.configValues[variable.key]) {
+        missing.push(variable.label);
+      }
+    }
+
+    return missing;
+  }
+}
+
+// Singleton instance
+let categoryManagerInstance: ServiceCategoryManager | null = null;
+
+export function getServiceCategoryManager(): ServiceCategoryManager {
+  if (!categoryManagerInstance) {
+    categoryManagerInstance = new ServiceCategoryManager();
+  }
+  return categoryManagerInstance;
+}

@@ -1,0 +1,1045 @@
+/**
+ * Agent Management Service
+ * Create, configure, and manage custom agents
+ */
+
+import * as fs from 'fs/promises';
+import * as path from 'path';
+
+export interface AgentConfigVariable {
+  key: string;
+  label: string;
+  type: 'text' | 'password' | 'number' | 'select' | 'boolean' | 'tool-choice';
+  description: string;
+  required: boolean;
+  defaultValue?: string;
+  options?: string[]; // For select type
+  placeholder?: string;
+  toolOptions?: ToolOption[]; // For tool-choice type
+}
+
+export interface ToolOption {
+  value: string;
+  label: string;
+  description: string;
+  requiresInstall?: boolean;
+  installCommand?: string;
+  checkCommand?: string;
+}
+
+export type AgentCategory =
+  | 'management'
+  | 'development'
+  | 'quality'
+  | 'security'
+  | 'deployment'
+  | 'notifications'
+  | 'domain-experts';
+
+export interface AgentConfig {
+  id: string;
+  name: string;
+  role: string;
+  emoji: string;
+  color: string;
+  description: string;
+  helpText?: string; // Detailed help text explaining how the agent works
+  capabilities: string[];
+  tools: string[];
+  model: 'sonnet' | 'opus' | 'haiku';
+  systemPrompt: string;
+  fullPrompt?: string; // Complete markdown-style prompt
+  configVariables?: AgentConfigVariable[]; // Configuration variables
+  configValues?: Record<string, string>; // Actual values for config vars
+  isCustom: boolean;
+  category: AgentCategory; // Agent category
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface AgentTemplate {
+  name: string;
+  description: string;
+  emoji: string;
+  color: string;
+  capabilities: string[];
+  tools: string[];
+  systemPromptTemplate: string;
+}
+
+export class AgentManager {
+  private agentsDir: string;
+  private customAgentsFile: string;
+
+  constructor() {
+    this.agentsDir = path.join(process.env.HOME || '', '.claude', 'agents');
+    this.customAgentsFile = path.join(this.agentsDir, 'custom-agents.json');
+  }
+
+  /**
+   * Get all default agents (built-in)
+   */
+  getDefaultAgents(): AgentConfig[] {
+    return [
+      {
+        id: '1',
+        name: 'Peter van Dijk',
+        role: 'Team Manager',
+        emoji: '👔',
+        color: '#3B82F6',
+        description: 'Orchestrates the team, assigns tasks, and monitors progress',
+        capabilities: ['Task Assignment', 'Progress Monitoring', 'Team Coordination'],
+        tools: ['Task Tracker', 'Git', 'Communication'],
+        model: 'sonnet',
+        systemPrompt: `Analyze the project and coordinate team work:
+1. Review project structure and identify main components
+2. Check git status and recent activity
+3. Identify any blocking issues or dependencies
+4. Create a prioritized task list for the team
+5. Report team coordination status and recommendations`,
+        category: 'management',
+        configVariables: [],
+        isCustom: false,
+      },
+      {
+        id: '2',
+        name: 'Tom Hendriks',
+        role: 'Bug Fixer',
+        emoji: '🐛',
+        color: '#EF4444',
+        description: 'Identifies and resolves bugs with Dutch insurance domain expertise',
+        capabilities: ['Bug Detection', 'Root Cause Analysis', 'Bug Fixing'],
+        tools: ['Debugger', 'Testing Framework', 'Error Tracking'],
+        model: 'sonnet',
+        systemPrompt: `Analyze and fix bugs in the codebase:
+1. Search for error logs and stack traces
+2. Identify common error patterns and bug indicators
+3. Analyze recent commits for potential bug introductions
+4. Run tests to identify failing scenarios
+5. Fix identified bugs and verify fixes
+6. Report all bugs found and fixes applied`,
+        category: 'quality',
+        configVariables: [
+          {
+            key: 'error_tracking',
+            label: 'Error Tracking Tool',
+            type: 'select',
+            description: 'Which error tracking service to use',
+            required: false,
+            defaultValue: 'sentry',
+            options: ['sentry', 'bugsnag', 'rollbar', 'airbrake', 'none'],
+          },
+          {
+            key: 'log_level',
+            label: 'Minimum Log Level',
+            type: 'select',
+            description: 'Minimum severity level for bug reports',
+            required: false,
+            defaultValue: 'error',
+            options: ['debug', 'info', 'warning', 'error', 'critical'],
+          },
+          {
+            key: 'auto_create_issues',
+            label: 'Auto-create Issues',
+            type: 'boolean',
+            description: 'Automatically create GitHub issues for bugs',
+            required: false,
+            defaultValue: 'true',
+          },
+          {
+            key: 'priority_labels',
+            label: 'Priority Labels',
+            type: 'text',
+            description: 'Comma-separated bug priority labels',
+            required: false,
+            placeholder: 'P0,P1,P2,P3',
+          },
+        ],
+        isCustom: false,
+      },
+      {
+        id: '3',
+        name: 'Emma van der Berg',
+        role: 'Feature Developer',
+        emoji: '✨',
+        color: '#8B5CF6',
+        description: 'Develops new features for Dutch insurance products',
+        capabilities: ['Feature Development', 'API Design', 'UI/UX Implementation'],
+        tools: ['Code Editor', 'Git', 'Testing Framework'],
+        model: 'sonnet',
+        systemPrompt: `Develop and implement new features:
+1. Analyze project structure and identify where new features should be implemented
+2. Review existing code patterns and architecture to maintain consistency
+3. Implement new features following project coding standards
+4. Write comprehensive tests for all new functionality
+5. Update documentation for implemented features
+6. Create git commits with clear feature descriptions
+7. Report implementation progress and any technical decisions made`,
+        category: 'development',
+        configVariables: [
+          {
+            key: 'coding_style',
+            label: 'Coding Style Guide',
+            type: 'select',
+            description: 'Which coding standards to follow',
+            required: false,
+            defaultValue: 'psr12',
+            options: ['psr12', 'airbnb', 'google', 'standard', 'custom'],
+          },
+          {
+            key: 'framework',
+            label: 'Primary Framework',
+            type: 'select',
+            description: 'Main framework for feature development',
+            required: true,
+            defaultValue: 'laravel',
+            options: ['laravel', 'symfony', 'react', 'vue', 'nextjs', 'other'],
+          },
+          {
+            key: 'test_coverage_min',
+            label: 'Minimum Test Coverage %',
+            type: 'number',
+            description: 'Required code coverage percentage',
+            required: false,
+            defaultValue: '80',
+            placeholder: '80',
+          },
+          {
+            key: 'feature_branch_prefix',
+            label: 'Feature Branch Prefix',
+            type: 'text',
+            description: 'Prefix for feature branches',
+            required: false,
+            defaultValue: 'feature/',
+            placeholder: 'feature/',
+          },
+        ],
+        isCustom: false,
+      },
+      {
+        id: '5',
+        name: 'Mark Vermeer',
+        role: 'Security Developer',
+        emoji: '🔒',
+        color: '#F59E0B',
+        description: 'Fixes vulnerabilities and ensures OWASP compliance',
+        capabilities: ['Security Auditing', 'Vulnerability Fixing', 'Encryption'],
+        tools: ['Security Scanner', 'Encryption Tools', 'OWASP Tools'],
+        model: 'sonnet',
+        systemPrompt: `Audit and fix security vulnerabilities:
+1. Scan codebase for security vulnerabilities and OWASP Top 10 issues
+2. Check dependencies for known security vulnerabilities
+3. Review code for common security flaws (SQL injection, XSS, CSRF, etc.)
+4. Verify proper encryption and secure data handling
+5. Check authentication and authorization implementation
+6. Fix identified security vulnerabilities
+7. Implement security best practices where missing
+8. Report security audit results and fixes applied`,
+        category: 'security',
+        configVariables: [
+          {
+            key: 'security_scanner',
+            label: 'Security Scanner',
+            type: 'select',
+            description: 'Which security scanning tool to use',
+            required: false,
+            defaultValue: 'snyk',
+            options: ['snyk', 'sonarqube', 'checkmarx', 'veracode', 'owasp-zap'],
+          },
+          {
+            key: 'min_severity',
+            label: 'Minimum Severity Level',
+            type: 'select',
+            description: 'Minimum severity to report',
+            required: false,
+            defaultValue: 'medium',
+            options: ['low', 'medium', 'high', 'critical'],
+          },
+          {
+            key: 'auto_fix_vulnerabilities',
+            label: 'Auto-fix Vulnerabilities',
+            type: 'boolean',
+            description: 'Automatically fix known vulnerabilities',
+            required: false,
+            defaultValue: 'false',
+          },
+          {
+            key: 'compliance_standards',
+            label: 'Compliance Standards',
+            type: 'text',
+            description: 'Comma-separated standards (OWASP, PCI-DSS, etc.)',
+            required: false,
+            placeholder: 'OWASP,PCI-DSS,GDPR',
+          },
+        ],
+        isCustom: false,
+      },
+      {
+        id: '6',
+        name: 'Sarah de Boer',
+        role: 'Test Runner',
+        emoji: '🧪',
+        color: '#EC4899',
+        description: 'Runs tests, writes missing tests, ensures coverage',
+        capabilities: ['Test Writing', 'Test Execution', 'Coverage Analysis'],
+        tools: ['Jest', 'PHPUnit', 'Coverage Tools'],
+        model: 'haiku',
+        systemPrompt: `Run tests and ensure quality coverage:
+1. Identify all test files and test suites in the project
+2. Run existing test suites and analyze results
+3. Identify code without test coverage
+4. Write missing unit and integration tests
+5. Verify test coverage meets minimum thresholds
+6. Fix failing tests and investigate failures
+7. Run tests in different environments if configured
+8. Report test results, coverage statistics, and quality metrics`,
+        category: 'quality',
+        configVariables: [
+          {
+            key: 'test_framework',
+            label: 'Test Framework',
+            type: 'select',
+            description: 'Which testing framework to use',
+            required: true,
+            defaultValue: 'phpunit',
+            options: ['phpunit', 'jest', 'pytest', 'mocha', 'vitest', 'cypress'],
+          },
+          {
+            key: 'coverage_threshold',
+            label: 'Coverage Threshold %',
+            type: 'number',
+            description: 'Minimum required test coverage',
+            required: false,
+            defaultValue: '80',
+            placeholder: '80',
+          },
+          {
+            key: 'test_types',
+            label: 'Test Types',
+            type: 'text',
+            description: 'Comma-separated test types to run',
+            required: false,
+            defaultValue: 'unit,integration',
+            placeholder: 'unit,integration,e2e',
+          },
+          {
+            key: 'parallel_execution',
+            label: 'Parallel Test Execution',
+            type: 'boolean',
+            description: 'Run tests in parallel',
+            required: false,
+            defaultValue: 'true',
+          },
+        ],
+        isCustom: false,
+      },
+      {
+        id: '7',
+        name: 'Jan Bakker',
+        role: 'Laravel Expert',
+        emoji: '🎯',
+        color: '#EF4444',
+        description: 'Laravel development expert for architecture and implementation',
+        helpText: `**How Jan Bakker works:**
+
+Jan Bakker is a Laravel specialist who only picks up work when the GitHub issue has a label with his name ("Jan Bakker").
+
+When activated, he:
+- Focuses exclusively on Laravel-related tasks
+- Analyzes code structure and identifies Laravel-specific issues
+- Implements solutions following Laravel best practices
+- Optimizes database queries and Eloquent relationships
+
+**When to use Jan Bakker:**
+- Laravel architecture questions
+- Eloquent ORM optimization
+- Laravel-specific bug fixes
+- Performance improvements in Laravel applications
+
+**Configuration:**
+You can configure the Laravel version, PHP version, database system, and whether to use Livewire in the agent configuration.`,
+        capabilities: ['Laravel Development', 'Eloquent ORM', 'API Development'],
+        tools: ['Laravel', 'Composer', 'Artisan'],
+        model: 'opus',
+        systemPrompt: `You are a Laravel development expert. Your job is to WRITE CODE and IMPLEMENT solutions, not just analyze.
+
+CRITICAL: You MUST make actual code changes. Do not just provide recommendations or reports.
+
+For every issue:
+1. READ the relevant files using the Read tool
+2. WRITE or EDIT the code using the Write or Edit tools
+3. Implement Laravel best practices in your code
+4. Make sure to actually save your changes to files
+
+Your workflow:
+1. Analyze Laravel project structure and configuration
+2. Review Eloquent models, relationships, and database schema
+3. Identify specific code that needs to be written or changed
+4. **USE THE WRITE OR EDIT TOOLS TO MAKE THE CHANGES**
+5. Optimize database queries and eliminate N+1 problems
+6. Implement proper validation, authorization, and authentication
+7. Provide a brief summary of what you implemented
+
+REMEMBER: Always use Write/Edit tools to make code changes. Reports without code changes are not acceptable.`,
+        category: 'domain-experts',
+        configVariables: [
+          {
+            key: 'laravel_version',
+            label: 'Laravel Version',
+            type: 'select',
+            description: 'Target Laravel version',
+            required: true,
+            defaultValue: '11',
+            options: ['8', '9', '10', '11', '12'],
+          },
+          {
+            key: 'php_version',
+            label: 'PHP Version',
+            type: 'select',
+            description: 'Target PHP version',
+            required: true,
+            defaultValue: '8.3',
+            options: ['7.4', '8.0', '8.1', '8.2', '8.3', '8.4'],
+          },
+          {
+            key: 'database',
+            label: 'Database System',
+            type: 'select',
+            description: 'Primary database system',
+            required: false,
+            defaultValue: 'mysql',
+            options: ['mysql', 'postgresql', 'sqlite', 'sqlserver'],
+          },
+          {
+            key: 'use_livewire',
+            label: 'Use Livewire',
+            type: 'boolean',
+            description: 'Enable Livewire for dynamic interfaces',
+            required: false,
+            defaultValue: 'false',
+          },
+        ],
+        isCustom: false,
+      },
+      {
+        id: '8',
+        name: 'Anna de Vries',
+        role: 'Code Reviewer',
+        emoji: '👁️',
+        color: '#6366F1',
+        description: 'Reviews code quality, SOLID principles, and best practices',
+        capabilities: ['Code Review', 'Quality Analysis', 'Best Practices'],
+        tools: ['Code Analyzer', 'Linter', 'Documentation'],
+        model: 'sonnet',
+        systemPrompt: `Review code quality and best practices:
+1. Review recent code changes and commits
+2. Check adherence to SOLID principles and design patterns
+3. Identify code smells and technical debt
+4. Verify proper error handling and edge cases
+5. Check code documentation and comments quality
+6. Review test coverage for changed code
+7. Suggest refactoring opportunities and improvements
+8. Report code quality assessment with specific recommendations`,
+        category: 'quality',
+        configVariables: [
+          {
+            key: 'review_strictness',
+            label: 'Review Strictness',
+            type: 'select',
+            description: 'How strict should code reviews be',
+            required: false,
+            defaultValue: 'balanced',
+            options: ['lenient', 'balanced', 'strict', 'very-strict'],
+          },
+          {
+            key: 'focus_areas',
+            label: 'Focus Areas',
+            type: 'text',
+            description: 'Comma-separated focus areas for reviews',
+            required: false,
+            placeholder: 'security,performance,maintainability',
+          },
+          {
+            key: 'auto_approve_minor',
+            label: 'Auto-approve Minor Changes',
+            type: 'boolean',
+            description: 'Auto-approve small formatting changes',
+            required: false,
+            defaultValue: 'false',
+          },
+          {
+            key: 'require_tests',
+            label: 'Require Tests',
+            type: 'boolean',
+            description: 'Require tests for all code changes',
+            required: false,
+            defaultValue: 'true',
+          },
+        ],
+        isCustom: false,
+      },
+      {
+        id: '9',
+        name: 'Frank Peters',
+        role: 'Deployment Manager',
+        emoji: '🚀',
+        color: '#059669',
+        description: 'Handles git operations, creates PRs, manages deployments',
+        capabilities: ['Git Operations', 'CI/CD', 'Deployment'],
+        tools: ['Git', 'Docker', 'CI/CD Pipelines'],
+        model: 'haiku',
+        systemPrompt: `Manage deployments and git operations:
+1. Review git status and pending changes
+2. Create feature branches following naming conventions
+3. Stage and commit code changes with descriptive messages
+4. Create pull requests with comprehensive descriptions
+5. Monitor CI/CD pipeline execution and status
+6. Handle merge conflicts if present
+7. Manage deployment to target environments
+8. Report deployment status and any issues encountered`,
+        category: 'deployment',
+        configVariables: [
+          {
+            key: 'ci_cd_platform',
+            label: 'CI/CD Platform',
+            type: 'select',
+            description: 'Which CI/CD platform to use',
+            required: true,
+            defaultValue: 'github-actions',
+            options: ['github-actions', 'gitlab-ci', 'jenkins', 'circleci', 'travis'],
+          },
+          {
+            key: 'deployment_env',
+            label: 'Deployment Environment',
+            type: 'select',
+            description: 'Target deployment environment',
+            required: false,
+            defaultValue: 'production',
+            options: ['development', 'staging', 'production', 'all'],
+          },
+          {
+            key: 'auto_deploy',
+            label: 'Auto-deploy on Merge',
+            type: 'boolean',
+            description: 'Automatically deploy when merged to main',
+            required: false,
+            defaultValue: 'false',
+          },
+          {
+            key: 'deployment_strategy',
+            label: 'Deployment Strategy',
+            type: 'select',
+            description: 'How to deploy updates',
+            required: false,
+            defaultValue: 'rolling',
+            options: ['rolling', 'blue-green', 'canary', 'recreate'],
+          },
+        ],
+        isCustom: false,
+      },
+      {
+        id: '10',
+        name: 'Sophie Mulder',
+        role: 'Insurance Expert',
+        emoji: '🏢',
+        color: '#0891B2',
+        description: 'Dutch insurance expertise with EAA standards',
+        capabilities: ['Insurance Domain', 'EAA Standards', 'Compliance'],
+        tools: ['Domain Knowledge', 'Regulatory Tools', 'Documentation'],
+        model: 'opus',
+        systemPrompt: `Provide Dutch insurance domain expertise:
+1. Review code for insurance product compliance
+2. Validate insurance calculations against EAA standards
+3. Check regulatory compliance (WFT, GDPR, Nederlandse wetgeving)
+4. Review insurance product configurations and coverage rules
+5. Verify premium calculations and risk assessments
+6. Ensure proper handling of insurance-specific data
+7. Validate policy workflows and claim processing
+8. Report compliance issues and insurance domain recommendations`,
+        category: 'domain-experts',
+        configVariables: [
+          {
+            key: 'insurance_types',
+            label: 'Insurance Product Types',
+            type: 'text',
+            description: 'Comma-separated insurance types (e.g., WA, WA-Casco, All-risk)',
+            required: false,
+            placeholder: 'WA,WA-Casco,All-risk,Inboedel',
+          },
+          {
+            key: 'regulatory_framework',
+            label: 'Regulatory Framework',
+            type: 'select',
+            description: 'Primary regulatory framework to follow',
+            required: false,
+            defaultValue: 'wft',
+            options: ['wft', 'eaa', 'gdpr', 'all'],
+          },
+          {
+            key: 'calculation_engine',
+            label: 'Calculation Engine',
+            type: 'text',
+            description: 'Insurance calculation engine/system name',
+            required: false,
+            placeholder: 'Exactonline, Custom',
+          },
+          {
+            key: 'compliance_level',
+            label: 'Compliance Level',
+            type: 'select',
+            description: 'Required compliance verification level',
+            required: false,
+            defaultValue: 'standard',
+            options: ['basic', 'standard', 'strict', 'audit-ready'],
+          },
+        ],
+        isCustom: false,
+      },
+      {
+        id: '11',
+        name: 'Bas Visser',
+        role: 'Performance Developer',
+        emoji: '⚡',
+        color: '#DC2626',
+        description: 'Optimizes performance for insurance calculations',
+        capabilities: ['Performance Optimization', 'Profiling', 'Caching'],
+        tools: ['Profiler', 'Cache Systems', 'Database Optimization'],
+        model: 'sonnet',
+        systemPrompt: `Optimize application performance:
+1. Profile application performance and identify bottlenecks
+2. Analyze database queries for slow performance and N+1 issues
+3. Review caching strategy and implementation
+4. Identify memory leaks and resource usage issues
+5. Optimize insurance calculation performance
+6. Implement performance improvements for identified bottlenecks
+7. Run performance benchmarks before and after optimizations
+8. Report performance metrics and optimization results`,
+        category: 'quality',
+        configVariables: [
+          {
+            key: 'cache_system',
+            label: 'Caching System',
+            type: 'select',
+            description: 'Which caching system to use',
+            required: false,
+            defaultValue: 'redis',
+            options: ['redis', 'memcached', 'file', 'database', 'none'],
+          },
+          {
+            key: 'performance_target',
+            label: 'Performance Target (ms)',
+            type: 'number',
+            description: 'Target response time in milliseconds',
+            required: false,
+            defaultValue: '200',
+            placeholder: '200',
+          },
+          {
+            key: 'profiling_tool',
+            label: 'Profiling Tool',
+            type: 'select',
+            description: 'Performance profiling tool to use',
+            required: false,
+            defaultValue: 'xdebug',
+            options: ['xdebug', 'blackfire', 'newrelic', 'datadog', 'custom'],
+          },
+          {
+            key: 'optimize_queries',
+            label: 'Auto-optimize Database Queries',
+            type: 'boolean',
+            description: 'Automatically optimize slow queries',
+            required: false,
+            defaultValue: 'true',
+          },
+        ],
+        isCustom: false,
+      },
+      {
+        id: '12',
+        name: 'Lisa van Dijk',
+        role: 'Envoyer Deployer',
+        emoji: '🚢',
+        color: '#10B981',
+        description: 'Manages deployments via Envoyer for Laravel applications',
+        helpText: `**How Lisa van Dijk works:**
+
+Lisa van Dijk is an Envoyer deployment specialist who handles Laravel application deployments through Envoyer.
+
+When activated, she:
+- Connects to Envoyer API to manage deployments
+- Fetches project configuration and deployment history
+- Triggers deployments from specified branches or tags
+- Monitors deployment progress and status
+- Sends notifications about deployment results
+
+**When to use Lisa van Dijk:**
+- Deploy Laravel applications to production/staging
+- Check deployment history and status
+- Manage deployment configurations
+- Rollback to previous deployments
+
+**Configuration:**
+You need to configure your Envoyer API token, project ID, deployment source (branch or tag), and notification preferences.`,
+        capabilities: ['Envoyer Deployment', 'Laravel Deployment', 'Deployment Monitoring'],
+        tools: ['Envoyer API', 'Git', 'Notifications'],
+        model: 'haiku',
+        systemPrompt: `Manage Laravel application deployments via Envoyer:
+1. Connect to Envoyer API using configured credentials
+2. Fetch project information and current deployment status
+3. Trigger deployments from specified branch or tag
+4. Monitor deployment progress and wait for completion
+5. Handle deployment hooks and notifications
+6. Report deployment results and any issues
+7. Manage rollbacks if necessary
+
+CRITICAL: Always verify deployment configuration before triggering deployments.
+Always notify stakeholders about deployment status.`,
+        category: 'deployment',
+        configVariables: [
+          {
+            key: 'envoyer_api_token',
+            label: 'Envoyer API Token',
+            type: 'password',
+            description: 'Your Envoyer API token (requires create/delete scopes)',
+            required: true,
+            placeholder: 'Enter your Envoyer API token',
+          },
+          {
+            key: 'envoyer_project_id',
+            label: 'Envoyer Project ID',
+            type: 'text',
+            description: 'Project ID from Envoyer dashboard',
+            required: true,
+            placeholder: 'Enter project ID',
+          },
+          {
+            key: 'deploy_from',
+            label: 'Deploy From',
+            type: 'select',
+            description: 'Source for deployments',
+            required: true,
+            defaultValue: 'branch',
+            options: ['branch', 'tag'],
+          },
+          {
+            key: 'deploy_branch',
+            label: 'Deployment Branch',
+            type: 'text',
+            description: 'Git branch to deploy from (e.g., main, production)',
+            required: false,
+            defaultValue: 'main',
+            placeholder: 'main',
+          },
+          {
+            key: 'deploy_tag',
+            label: 'Deployment Tag',
+            type: 'text',
+            description: 'Git tag to deploy (e.g., v1.0.0)',
+            required: false,
+            placeholder: 'v1.0.0',
+          },
+          {
+            key: 'deployment_timeout',
+            label: 'Deployment Timeout (minutes)',
+            type: 'number',
+            description: 'Maximum time to wait for deployment',
+            required: false,
+            defaultValue: '10',
+            placeholder: '10',
+          },
+          {
+            key: 'notification_channels',
+            label: 'Notification Channels',
+            type: 'text',
+            description: 'Comma-separated channels (email, slack, discord, teams)',
+            required: false,
+            defaultValue: 'email',
+            placeholder: 'email,slack',
+          },
+        ],
+        isCustom: false,
+      },
+    ];
+  }
+
+  /**
+   * Get agent templates for creating new agents
+   */
+  getAgentTemplates(): AgentTemplate[] {
+    return [
+      {
+        name: 'Backend Developer',
+        description: 'Full-stack backend developer',
+        emoji: '⚙️',
+        color: '#6366F1',
+        capabilities: ['API Development', 'Database Design', 'Backend Architecture'],
+        tools: ['Code Editor', 'Database Tools', 'API Testing'],
+        systemPromptTemplate: 'You are a backend developer specializing in {language} and {framework}.',
+      },
+      {
+        name: 'Frontend Developer',
+        description: 'Modern frontend specialist',
+        emoji: '🎨',
+        color: '#EC4899',
+        capabilities: ['UI Development', 'Component Design', 'State Management'],
+        tools: ['React/Vue', 'CSS Framework', 'Build Tools'],
+        systemPromptTemplate: 'You are a frontend developer expert in {framework} and modern UI.',
+      },
+      {
+        name: 'DevOps Engineer',
+        description: 'Infrastructure and deployment expert',
+        emoji: '🔧',
+        color: '#059669',
+        capabilities: ['CI/CD', 'Infrastructure', 'Monitoring'],
+        tools: ['Docker', 'Kubernetes', 'CI/CD Tools'],
+        systemPromptTemplate: 'You are a DevOps engineer managing infrastructure and deployments.',
+      },
+      {
+        name: 'Database Specialist',
+        description: 'Database design and optimization',
+        emoji: '🗄️',
+        color: '#F59E0B',
+        capabilities: ['Database Design', 'Query Optimization', 'Data Migration'],
+        tools: ['SQL', 'ORM', 'Migration Tools'],
+        systemPromptTemplate: 'You are a database specialist expert in {database} optimization.',
+      },
+      {
+        name: 'API Developer',
+        description: 'REST/GraphQL API specialist',
+        emoji: '🔌',
+        color: '#8B5CF6',
+        capabilities: ['API Design', 'Documentation', 'Integration'],
+        tools: ['API Framework', 'OpenAPI', 'Testing Tools'],
+        systemPromptTemplate: 'You are an API developer specializing in {api_type} design.',
+      },
+      {
+        name: 'Data Analyst',
+        description: 'Data analysis and reporting',
+        emoji: '📊',
+        color: '#10B981',
+        capabilities: ['Data Analysis', 'Reporting', 'Visualization'],
+        tools: ['SQL', 'Analytics Tools', 'Visualization'],
+        systemPromptTemplate: 'You are a data analyst expert in insights and reporting.',
+      },
+    ];
+  }
+
+  /**
+   * Load custom agents from file
+   */
+  async loadCustomAgents(): Promise<AgentConfig[]> {
+    try {
+      await fs.mkdir(this.agentsDir, { recursive: true });
+
+      const data = await fs.readFile(this.customAgentsFile, 'utf-8');
+      return JSON.parse(data);
+    } catch (error) {
+      // File doesn't exist yet, return empty array
+      return [];
+    }
+  }
+
+  /**
+   * Get all agents (default + custom)
+   */
+  async getAllAgents(): Promise<AgentConfig[]> {
+    const defaultAgents = this.getDefaultAgents();
+    const customAgents = await this.loadCustomAgents();
+    return [...defaultAgents, ...customAgents];
+  }
+
+  /**
+   * Create a new custom agent
+   */
+  async createAgent(agent: Omit<AgentConfig, 'id' | 'isCustom' | 'createdAt' | 'updatedAt'>): Promise<AgentConfig> {
+    const customAgents = await this.loadCustomAgents();
+
+    const newAgent: AgentConfig = {
+      ...agent,
+      id: `custom-${Date.now()}`,
+      isCustom: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    customAgents.push(newAgent);
+    await this.saveCustomAgents(customAgents);
+
+    return newAgent;
+  }
+
+  /**
+   * Update an existing agent
+   */
+  async updateAgent(id: string, updates: Partial<AgentConfig>): Promise<AgentConfig> {
+    const customAgents = await this.loadCustomAgents();
+    const index = customAgents.findIndex(a => a.id === id);
+
+    if (index === -1) {
+      throw new Error(`Agent ${id} not found or cannot be edited`);
+    }
+
+    const updatedAgent = {
+      ...customAgents[index],
+      ...updates,
+      id, // Keep original ID
+      isCustom: true,
+      updatedAt: new Date().toISOString(),
+    };
+
+    customAgents[index] = updatedAgent;
+    await this.saveCustomAgents(customAgents);
+
+    return updatedAgent;
+  }
+
+  /**
+   * Delete a custom agent
+   */
+  async deleteAgent(id: string): Promise<void> {
+    const customAgents = await this.loadCustomAgents();
+    const filtered = customAgents.filter(a => a.id !== id);
+
+    if (filtered.length === customAgents.length) {
+      throw new Error(`Agent ${id} not found or cannot be deleted`);
+    }
+
+    await this.saveCustomAgents(filtered);
+  }
+
+  /**
+   * Create agent from template
+   */
+  async createFromTemplate(templateName: string, customization: {
+    name: string;
+    variables?: Record<string, string>;
+  }): Promise<AgentConfig> {
+    const template = this.getAgentTemplates().find(t => t.name === templateName);
+
+    if (!template) {
+      throw new Error(`Template ${templateName} not found`);
+    }
+
+    // Replace variables in system prompt
+    let systemPrompt = template.systemPromptTemplate;
+    if (customization.variables) {
+      Object.entries(customization.variables).forEach(([key, value]) => {
+        systemPrompt = systemPrompt.replace(`{${key}}`, value);
+      });
+    }
+
+    return this.createAgent({
+      name: customization.name,
+      role: template.name,
+      emoji: template.emoji,
+      color: template.color,
+      description: template.description,
+      capabilities: [...template.capabilities],
+      tools: [...template.tools],
+      model: 'sonnet',
+      systemPrompt,
+    });
+  }
+
+  /**
+   * Export agent to markdown format
+   */
+  exportToMarkdown(agent: AgentConfig): string {
+    const frontmatter = `---
+name: ${agent.role.toLowerCase().replace(/ /g, '-')}
+description: ${agent.description}
+tools: ${agent.tools.join(', ')}
+model: ${agent.model}
+color: ${agent.color}
+---
+
+`;
+
+    const prompt = agent.fullPrompt || agent.systemPrompt;
+
+    return frontmatter + prompt;
+  }
+
+  /**
+   * Import agent from markdown format
+   */
+  async importFromMarkdown(markdown: string, name: string): Promise<AgentConfig> {
+    // Parse frontmatter
+    const frontmatterMatch = markdown.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+
+    if (!frontmatterMatch) {
+      throw new Error('Invalid markdown format');
+    }
+
+    const [, frontmatter, prompt] = frontmatterMatch;
+
+    // Parse YAML-like frontmatter
+    const config: any = {};
+    frontmatter.split('\n').forEach(line => {
+      const [key, ...valueParts] = line.split(':');
+      if (key && valueParts.length) {
+        config[key.trim()] = valueParts.join(':').trim();
+      }
+    });
+
+    // Create agent from markdown
+    return this.createAgent({
+      name,
+      role: config.name || name,
+      emoji: '🤖',
+      color: config.color || '#3B82F6',
+      description: config.description || '',
+      capabilities: [],
+      tools: config.tools ? config.tools.split(',').map((t: string) => t.trim()) : [],
+      model: (config.model as 'sonnet' | 'opus' | 'haiku') || 'sonnet',
+      systemPrompt: prompt.trim(),
+      fullPrompt: prompt.trim(),
+    });
+  }
+
+  /**
+   * Save agent as markdown file
+   */
+  async saveAsMarkdownFile(agent: AgentConfig): Promise<string> {
+    const markdown = this.exportToMarkdown(agent);
+    const filename = `${agent.role.toLowerCase().replace(/ /g, '-')}.md`;
+    const filepath = path.join(this.agentsDir, filename);
+
+    await fs.mkdir(this.agentsDir, { recursive: true });
+    await fs.writeFile(filepath, markdown, 'utf-8');
+
+    return filepath;
+  }
+
+  /**
+   * Load agent from markdown file
+   */
+  async loadFromMarkdownFile(filepath: string, name: string): Promise<AgentConfig> {
+    const markdown = await fs.readFile(filepath, 'utf-8');
+    return this.importFromMarkdown(markdown, name);
+  }
+
+  /**
+   * Save custom agents to file
+   */
+  private async saveCustomAgents(agents: AgentConfig[]): Promise<void> {
+    await fs.mkdir(this.agentsDir, { recursive: true });
+    await fs.writeFile(
+      this.customAgentsFile,
+      JSON.stringify(agents, null, 2),
+      'utf-8'
+    );
+  }
+
+  /**
+   * Update all default agents with model field for consistency
+   */
+  private addModelFieldToAgents(agents: AgentConfig[]): AgentConfig[] {
+    return agents.map(agent => ({
+      ...agent,
+      model: agent.model || 'sonnet',
+    }));
+  }
+}
+
+export const agentManager = new AgentManager();

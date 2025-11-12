@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Remove ReactFlow node selection outline */
+.react-flow__node.selected {
+  outline: none !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+.react-flow__node {
+  outline: none !important;
+  border: none !important;
+}
+
+/* Start node amber styling */
+.react-flow__node.start-node-amber {
+  background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%) !important;
+}
+
+/* Remove any white background from agent nodes */
+.agent-node-content {
+  background: transparent !important;
+  border: none !important;
+}
+
+@keyframes slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in {
+  animation: slide-in 0.3s ease-out;
+}
+
+@keyframes slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-down {
+  animation: slide-down 0.2s ease-out;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
+}

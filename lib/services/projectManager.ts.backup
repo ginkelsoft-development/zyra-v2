@@ -1,0 +1,220 @@
+/**
+ * Project Manager Service
+ * Manages projects and their agent configurations
+ */
+
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import { Project, ProjectAgentConfig } from './projectAnalyzer';
+
+export class ProjectManager {
+  private projectsFile: string;
+
+  constructor() {
+    const homeDir = process.env.HOME || '';
+    this.projectsFile = path.join(homeDir, '.claude', 'projects.json');
+  }
+
+  /**
+   * Load all projects from storage
+   */
+  async loadProjects(): Promise<Project[]> {
+    try {
+      const data = await fs.readFile(this.projectsFile, 'utf-8');
+      return JSON.parse(data);
+    } catch (error) {
+      // File doesn't exist yet
+      return [];
+    }
+  }
+
+  /**
+   * Save projects to storage
+   */
+  private async saveProjects(projects: Project[]): Promise<void> {
+    const dir = path.dirname(this.projectsFile);
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(
+      this.projectsFile,
+      JSON.stringify(projects, null, 2),
+      'utf-8'
+    );
+  }
+
+  /**
+   * Add or update a project
+   */
+  async saveProject(project: Project): Promise<void> {
+    const projects = await this.loadProjects();
+    const index = projects.findIndex(p => p.path === project.path);
+
+    if (index >= 0) {
+      projects[index] = project;
+    } else {
+      projects.push(project);
+    }
+
+    await this.saveProjects(projects);
+  }
+
+  /**
+   * Get a specific project by path
+   */
+  async getProject(projectPath: string): Promise<Project | null> {
+    const projects = await this.loadProjects();
+    return projects.find(p => p.path === projectPath) || null;
+  }
+
+  /**
+   * Add an agent to a project (without configuration)
+   */
+  async addAgentToProject(projectPath: string, agentId: string): Promise<void> {
+    const project = await this.getProject(projectPath);
+    if (!project) {
+      throw new Error('Project not found');
+    }
+
+    if (!project.agents) {
+      project.agents = [];
+    }
+
+    // Check if agent already exists
+    const exists = project.agents.some(a => a.agentId === agentId);
+    if (!exists) {
+      project.agents.push({
+        agentId,
+        configValues: {},
+      });
+      await this.saveProject(project);
+    }
+  }
+
+  /**
+   * Remove an agent from a project
+   */
+  async removeAgentFromProject(projectPath: string, agentId: string): Promise<void> {
+    const project = await this.getProject(projectPath);
+    if (!project) {
+      throw new Error('Project not found');
+    }
+
+    if (project.agents) {
+      project.agents = project.agents.filter(a => a.agentId !== agentId);
+      await this.saveProject(project);
+    }
+  }
+
+  /**
+   * Configure a workflow node (agent or service) for a specific project
+   * NOTE: Uses nodeId to allow multiple instances of same agent/service with different configs
+   */
+  async configureNode(
+    projectPath: string,
+    nodeId: string,
+    agentId: string,
+    configValues: Record<string, string>
+  ): Promise<void> {
+    // IMPORTANT: Load fresh project data to avoid race conditions
+    // This prevents overwriting other node configs when multiple configs are saved concurrently
+    let project = await this.getProject(projectPath);
+
+    // If project doesn't exist, create it
+    if (!project) {
+      project = {
+        name: path.basename(projectPath),
+        path: projectPath,
+        agents: [],
+      };
+    }
+
+    if (!project.agents) {
+      project.agents = [];
+    }
+
+    // Find or create node config (using nodeId instead of agentId)
+    const nodeConfig = project.agents.find(a => a.nodeId === nodeId);
+    if (nodeConfig) {
+      nodeConfig.configValues = configValues;
+      nodeConfig.agentId = agentId; // Update agentId in case it changed
+    } else {
+      project.agents.push({
+        nodeId,
+        agentId,
+        configValues,
+      });
+    }
+
+    // Load fresh data one more time before saving to handle concurrent updates
+    const freshProject = await this.getProject(projectPath);
+    if (freshProject && freshProject.agents) {
+      // Merge our changes with the fresh data
+      const freshNodeConfig = freshProject.agents.find(a => a.nodeId === nodeId);
+      if (freshNodeConfig) {
+        freshNodeConfig.configValues = configValues;
+        freshNodeConfig.agentId = agentId;
+      } else {
+        freshProject.agents.push({
+          nodeId,
+          agentId,
+          configValues,
+        });
+      }
+      await this.saveProject(freshProject);
+    } else {
+      // No existing project, save our version
+      await this.saveProject(project);
+    }
+  }
+
+  /**
+   * LEGACY: Configure an agent for a specific project (backwards compatibility)
+   * @deprecated Use configureNode instead
+   */
+  async configureAgent(
+    projectPath: string,
+    agentId: string,
+    configValues: Record<string, string>
+  ): Promise<void> {
+    // For backwards compatibility, use agentId as nodeId
+    return this.configureNode(projectPath, agentId, agentId, configValues);
+  }
+
+  /**
+   * Get node configuration for a specific project
+   * Uses nodeId to support multiple instances of same agent/service
+   */
+  async getNodeConfig(
+    projectPath: string,
+    nodeId: string
+  ): Promise<Record<string, string> | null> {
+    const project = await this.getProject(projectPath);
+    if (!project || !project.agents) {
+      return null;
+    }
+
+    const nodeConfig = project.agents.find(a => a.nodeId === nodeId);
+    return nodeConfig?.configValues || null;
+  }
+
+  /**
+   * LEGACY: Get agent configuration for a specific project (backwards compatibility)
+   * @deprecated Use getNodeConfig instead
+   */
+  async getAgentConfig(
+    projectPath: string,
+    agentId: string
+  ): Promise<Record<string, string> | null> {
+    // For backwards compatibility, try to find by agentId (used as nodeId in old data)
+    return this.getNodeConfig(projectPath, agentId);
+  }
+
+  /**
+   * Get all agents for a project
+   */
+  async getProjectAgents(projectPath: string): Promise<ProjectAgentConfig[]> {
+    const project = await this.getProject(projectPath);
+    return project?.agents || [];
+  }
+}
+
+export const projectManager = new ProjectManager();
