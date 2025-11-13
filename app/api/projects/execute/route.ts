@@ -1357,7 +1357,7 @@ async function executeService(
           onOutput(`🔍 DEBUG: Git status output:`);
           if (hasChanges) {
             const statusLines = statusResult.stdout.trim().split('\n');
-            statusLines.forEach(line => onOutput(`   ${line}`));
+            statusLines.forEach((line: string) => onOutput(`   ${line}`));
           } else {
             onOutput(`   (no changes)`);
           }
@@ -1569,7 +1569,7 @@ async function executeService(
             const recentCommits = await execPromise(`cd "${projectPath}" && git log origin/${branch} --oneline -5`);
             onOutput(`🔍 DEBUG: Recent commits on origin/${branch}:`);
             const commitLines = recentCommits.stdout.trim().split('\n');
-            commitLines.forEach(line => onOutput(`   ${line}`));
+            commitLines.forEach((line: string) => onOutput(`   ${line}`));
           } catch (e: any) {
             onOutput(`⚠️  Could not get recent commits: ${e.message}`);
           }
