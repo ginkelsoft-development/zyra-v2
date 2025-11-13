@@ -1346,7 +1346,7 @@ async function executeService(
           if (commitFiles === '.') {
             await execPromise(`cd "${projectPath}" && git add .`);
           } else {
-            const files = commitFiles.split(',').map(f => f.trim()).join(' ');
+            const files = commitFiles.split(',').map((f: string) => f.trim()).join(' ');
             await execPromise(`cd "${projectPath}" && git add ${files}`);
           }
 
@@ -1806,7 +1806,7 @@ async function executeService(
 
           // Remove labels
           if (removeLabels) {
-            const labelsToRemove = removeLabels.split(',').map(l => l.trim());
+            const labelsToRemove = removeLabels.split(',').map((l: string) => l.trim());
             for (const label of labelsToRemove) {
               onOutput(`🏷️  Removing label "${label}"...`);
               await execPromise(`cd "${projectPath}" && gh issue edit ${issueNumber} --remove-label "${label}"`);
