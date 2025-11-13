@@ -78,14 +78,14 @@ export default function LoginPage() {
       // Convert credential to JSON
       const credentialJSON = {
         id: credential.id,
-        rawId: btoa(String.fromCharCode(...new Uint8Array(credential.rawId))),
+        rawId: btoa(String.fromCharCode(...Array.from(new Uint8Array(credential.rawId)))),
         type: credential.type,
         response: {
-          authenticatorData: btoa(String.fromCharCode(...new Uint8Array(credential.response.authenticatorData))),
-          clientDataJSON: btoa(String.fromCharCode(...new Uint8Array(credential.response.clientDataJSON))),
-          signature: btoa(String.fromCharCode(...new Uint8Array(credential.response.signature))),
+          authenticatorData: btoa(String.fromCharCode(...Array.from(new Uint8Array(credential.response.authenticatorData)))),
+          clientDataJSON: btoa(String.fromCharCode(...Array.from(new Uint8Array(credential.response.clientDataJSON)))),
+          signature: btoa(String.fromCharCode(...Array.from(new Uint8Array(credential.response.signature)))),
           userHandle: credential.response.userHandle ?
-            btoa(String.fromCharCode(...new Uint8Array(credential.response.userHandle))) : null,
+            btoa(String.fromCharCode(...Array.from(new Uint8Array(credential.response.userHandle)))) : null,
         },
       };
 
@@ -177,11 +177,11 @@ export default function LoginPage() {
       // Convert credential to JSON
       const credentialJSON = {
         id: credential.id,
-        rawId: btoa(String.fromCharCode(...new Uint8Array(credential.rawId))),
+        rawId: btoa(String.fromCharCode(...Array.from(new Uint8Array(credential.rawId)))),
         type: credential.type,
         response: {
-          attestationObject: btoa(String.fromCharCode(...new Uint8Array(credential.response.attestationObject))),
-          clientDataJSON: btoa(String.fromCharCode(...new Uint8Array(credential.response.clientDataJSON))),
+          attestationObject: btoa(String.fromCharCode(...Array.from(new Uint8Array(credential.response.attestationObject)))),
+          clientDataJSON: btoa(String.fromCharCode(...Array.from(new Uint8Array(credential.response.clientDataJSON)))),
           transports: credential.response.getTransports ? credential.response.getTransports() : [],
         },
       };

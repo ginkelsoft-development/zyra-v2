@@ -5,16 +5,15 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const workflowId = searchParams.get('id');
-    const projectPath = searchParams.get('projectPath');
 
-    if (!workflowId || !projectPath) {
+    if (!workflowId) {
       return NextResponse.json(
-        { error: 'Workflow ID and project path are required' },
+        { error: 'Workflow ID is required' },
         { status: 400 }
       );
     }
 
-    const workflow = await workflowManager.loadWorkflow(projectPath, workflowId);
+    const workflow = await workflowManager.loadWorkflow(workflowId);
 
     if (!workflow) {
       return NextResponse.json(

@@ -31,16 +31,16 @@ export async function GET(request: NextRequest) {
 // POST /api/workflows/default - Set a workflow as default
 export async function POST(request: NextRequest) {
   try {
-    const { workflowId } = await request.json();
+    const { workflowId, projectPath } = await request.json();
 
-    if (!workflowId) {
+    if (!workflowId || !projectPath) {
       return NextResponse.json(
-        { error: 'workflowId is required' },
+        { error: 'workflowId and projectPath are required' },
         { status: 400 }
       );
     }
 
-    await workflowManager.setDefaultWorkflow(workflowId);
+    await workflowManager.setDefaultWorkflow(projectPath, workflowId);
 
     return NextResponse.json({
       success: true,
