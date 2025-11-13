@@ -1912,6 +1912,7 @@ export default function WorkflowPage() {
               const fullService = availableServices.find(s => s.id === node.data.serviceId);
               if (fullService) {
                 setConfigService(fullService);
+                setConfigServiceNodeId(node.id);
               }
             },
           },
