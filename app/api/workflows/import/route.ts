@@ -22,19 +22,12 @@ export async function POST(request: NextRequest) {
 
     const workflow = workflowData.workflow;
 
-    // Generate new workflow ID to avoid conflicts
-    const newWorkflowId = `workflow-${Date.now()}`;
-
-    // Save imported workflow with new ID
-    const savedWorkflow = await workflowManager.saveWorkflow(
-      projectPath,
-      {
-        ...workflow,
-        id: newWorkflowId,
-        name: workflow.name || 'Imported Workflow',
-        lastModified: new Date().toISOString(),
-      }
-    );
+    // Save imported workflow
+    const savedWorkflow = await workflowManager.saveWorkflow({
+      ...workflow,
+      projectPath: projectPath,
+      name: workflow.name || 'Imported Workflow',
+    });
 
     return NextResponse.json({
       message: 'Workflow imported successfully',
