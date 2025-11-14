@@ -127,6 +127,8 @@ export default function WorkflowPage() {
   const [showProjectOverview, setShowProjectOverview] = useState(false);
   const [showProjectWizard, setShowProjectWizard] = useState(false);
   const [showProjectBrowser, setShowProjectBrowser] = useState(false);
+  const [showAgentManager, setShowAgentManager] = useState(false);
+  const [showServiceCategories, setShowServiceCategories] = useState(false);
 
   // Helper function to add timestamp to log messages
   const getTimestamp = () => {
@@ -151,8 +153,7 @@ export default function WorkflowPage() {
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
-  const [showAgentManager, setShowAgentManager] = useState(false);
-  const [showServiceCategories, setShowServiceCategories] = useState(false);
+
   // Project and workflow info from URL params
   const [currentProject, setCurrentProject] = useState<string | null>(workflowName);
   const [currentProjectPath, setCurrentProjectPath] = useState<string | null>(projectPath);
