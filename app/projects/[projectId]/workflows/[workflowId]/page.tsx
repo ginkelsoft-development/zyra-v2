@@ -19,6 +19,7 @@ import ReactFlow, {
   MarkerType,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
+import AgentManager from '@/components/agents/AgentManager';
 import AgentConfigForm from '@/components/agents/AgentConfigForm';
 import AgentNodeWithConfig from '@/components/workflow/AgentNodeWithConfig';
 import ServiceManager from '@/components/services/ServiceManager';
@@ -150,6 +151,7 @@ export default function WorkflowPage() {
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
+  const [showAgentManager, setShowAgentManager] = useState(false);
   const [showServiceCategories, setShowServiceCategories] = useState(false);
   // Project and workflow info from URL params
   const [currentProject, setCurrentProject] = useState<string | null>(workflowName);
@@ -1598,7 +1600,7 @@ export default function WorkflowPage() {
       }
     };
     loadAgents();
-  }, []); // Load agents on mount
+  }, [showAgentManager]); // Reload when agent manager closes (agents might be created)
 
   // Load available services on mount
   useEffect(() => {
@@ -1910,7 +1912,7 @@ export default function WorkflowPage() {
               const fullService = availableServices.find(s => s.id === node.data.serviceId);
               if (fullService) {
                 setConfigService(fullService);
-                setConfigServiceNodeId(node.id); // Store nodeId for per-node configuration
+                setConfigServiceNodeId(node.id);
               }
             },
           },
@@ -1922,6 +1924,29 @@ export default function WorkflowPage() {
 
   return (
     <>
+      {/* Agent Manager Modal */}
+      {showAgentManager && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg max-w-6xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-4 border-b dark:border-gray-800 flex justify-between items-center">
+              <h2 className="text-xl font-bold dark:text-white">Agent Management</h2>
+              <button
+                onClick={() => setShowAgentManager(false)}
+                className="px-4 py-2 bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700"
+              >
+                Close
+              </button>
+            </div>
+            <div className="p-6">
+              <AgentManager onAgentCreated={() => {
+                // Reload agents in sidebar when new agent is created
+                window.location.reload();
+              }} />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Service Categories Modal */}
       {showServiceCategories && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
@@ -2005,6 +2030,15 @@ export default function WorkflowPage() {
 
             {!sidebarCollapsed && (
               <div className="space-y-2">
+                <button
+                  onClick={() => setShowAgentManager(true)}
+                  className="w-full px-2.5 py-1.5 bg-gradient-to-r from-purple-500 to-indigo-600 text-white rounded-lg text-xs hover:from-purple-600 hover:to-indigo-700 font-medium flex items-center justify-center gap-1.5 transition-all shadow-lg"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                  Manage Tools
+                </button>
                 <button
                   onClick={() => setShowServiceCategories(true)}
                   className="w-full px-2.5 py-1.5 bg-gradient-to-r from-blue-500 to-cyan-600 text-white rounded-lg text-xs hover:from-blue-600 hover:to-cyan-700 font-medium flex items-center justify-center gap-1.5 transition-all shadow-lg"
