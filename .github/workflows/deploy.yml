@@ -1,0 +1,75 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: # Allows manual trigger from GitHub UI
+
+jobs:
+  deploy:
+    name: Deploy to Production Server
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to VPS via SSH
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            set -e
+
+            echo "🚀 Starting deployment..."
+
+            # Navigate to application directory
+            cd /var/www/zyra-v2 || cd ~/zyra-v2 || { echo "❌ Application directory not found"; exit 1; }
+
+            echo "📦 Pulling latest changes from GitHub..."
+            git fetch origin
+            git reset --hard origin/main
+
+            echo "📋 Installing dependencies..."
+            npm ci --production=false
+
+            echo "🏗️  Building application..."
+            npm run build
+
+            echo "🗄️  Running database migrations..."
+            npx prisma migrate deploy
+            npx prisma generate
+
+            echo "🔄 Restarting application..."
+            # Using PM2 (recommended)
+            if command -v pm2 &> /dev/null; then
+              pm2 restart zyra-v2 || pm2 start npm --name zyra-v2 -- start
+              pm2 save
+            # Or using systemd
+            elif systemctl is-active --quiet zyra-v2; then
+              sudo systemctl restart zyra-v2
+            # Or using docker
+            elif docker ps | grep -q zyra-v2; then
+              docker-compose restart
+            else
+              echo "⚠️  Could not detect process manager. Please restart manually."
+            fi
+
+            echo "✅ Deployment completed successfully!"
+            echo "📊 Application status:"
+            if command -v pm2 &> /dev/null; then
+              pm2 status zyra-v2
+            fi
+
+      - name: Notification
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ Deployment successful!"
+          else
+            echo "❌ Deployment failed!"
+          fi
