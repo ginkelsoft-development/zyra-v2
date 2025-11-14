@@ -90,6 +90,16 @@ export default function ServiceConfigSidebar({
 
     try {
       setSaving(true);
+
+      // Debug logging
+      console.log('[ServiceConfigSidebar] Saving config:', {
+        serviceId: service.id,
+        serviceName: service.name,
+        nodeId: nodeId,
+        hasNodeId: !!nodeId,
+        configValues: configValues
+      });
+
       const res = await fetch(`/api/projects/${encodeURIComponent(projectPath)}/services/${service.id}/config`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -101,6 +111,9 @@ export default function ServiceConfigSidebar({
       });
 
       if (!res.ok) throw new Error('Failed to save config');
+
+      const data = await res.json();
+      console.log('[ServiceConfigSidebar] Save response:', data);
 
       onSave(configValues);
       onClose();

@@ -1,22 +1,50 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { projectAnalyzer } from '@/lib/services/projectAnalyzer';
+import { prisma } from '@/lib/db/prisma';
+import path from 'path';
 
 export async function POST(request: NextRequest) {
   try {
-    const { name, type, description } = await request.json();
+    const { name, path: projectPath } = await request.json();
 
-    if (!name || !type) {
+    if (!name || !projectPath) {
       return NextResponse.json(
-        { error: 'Name and type are required' },
+        { error: 'Name and path are required' },
         { status: 400 }
       );
     }
 
-    const project = await projectAnalyzer.createProject(name, type, description);
+    // Normalize the path
+    const normalizedPath = projectPath.startsWith('~/')
+      ? path.join(process.env.HOME || '', projectPath.slice(2))
+      : projectPath;
+
+    // Check if project already exists in database
+    const existingProject = await prisma.project.findUnique({
+      where: { path: normalizedPath },
+    });
+
+    if (existingProject) {
+      return NextResponse.json(
+        { error: 'A project already exists at this path' },
+        { status: 409 }
+      );
+    }
+
+    // Create the project in database
+    const project = await prisma.project.create({
+      data: {
+        name: name.trim(),
+        path: normalizedPath,
+      },
+    });
 
     return NextResponse.json({
       success: true,
-      project,
+      project: {
+        id: project.id,
+        name: project.name,
+        path: project.path,
+      },
       message: `Project ${name} created successfully`
     });
   } catch (error: any) {

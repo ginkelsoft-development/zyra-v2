@@ -32,6 +32,26 @@ async function getGitHubRepositoryInfo(projectPath: string): Promise<{ owner: st
   };
 }
 
+/**
+ * Helper function to get Jira configuration from Jira category configuration
+ */
+async function getJiraConfiguration(projectPath: string, serviceConfig: any): Promise<{ jiraUrl: string; jiraEmail: string; jiraApiToken: string; defaultProject: string }> {
+  const categoryManager = getServiceCategoryManager();
+
+  // Get from category configuration
+  const jiraUrl = await categoryManager.getConfigValueAsync(projectPath, 'jira', 'jiraUrl') || '';
+  const jiraEmail = await categoryManager.getConfigValueAsync(projectPath, 'jira', 'jiraEmail') || '';
+  const jiraApiToken = await categoryManager.getConfigValueAsync(projectPath, 'jira', 'jiraApiToken') || '';
+  const defaultProject = await categoryManager.getConfigValueAsync(projectPath, 'jira', 'defaultProject') || '';
+
+  return {
+    jiraUrl,
+    jiraEmail,
+    jiraApiToken,
+    defaultProject,
+  };
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { projectPath, workflowNodes, edges, edgeConditions, stream, workflowId, workflowName } = await request.json();
@@ -57,27 +77,13 @@ export async function POST(request: NextRequest) {
       nodeResults: [],
     };
 
-    // Load agent and service configurations from API
-    const sessionCookie = request.cookies.get('session')?.value;
-    const headers: HeadersInit = {
-      'Cookie': `session=${sessionCookie}`,
-    };
+    // Load agent and service configurations directly from managers
+    // (bypasses authentication middleware which would return HTML instead of JSON)
+    const { agentManager } = await import('@/lib/services/agentManager');
+    const { serviceManager } = await import('@/lib/services/serviceManager');
 
-    const agentsResponse = await fetch(`${request.nextUrl.origin}/api/agents`, { headers });
-    if (!agentsResponse.ok) {
-      console.error('Failed to fetch agents:', await agentsResponse.text());
-      throw new Error('Failed to load agents');
-    }
-    const agentsData = await agentsResponse.json();
-    const allAgents = agentsData.agents || [];
-
-    const servicesResponse = await fetch(`${request.nextUrl.origin}/api/services`, { headers });
-    if (!servicesResponse.ok) {
-      console.error('Failed to fetch services:', await servicesResponse.text());
-      throw new Error('Failed to load services');
-    }
-    const servicesData = await servicesResponse.json();
-    const allServices = servicesData.services || [];
+    const allAgents = await agentManager.getAllAgents();
+    const allServices = await serviceManager.getAllServices();
 
     // If streaming is requested, use SSE
     if (stream) {
@@ -166,8 +172,9 @@ export async function POST(request: NextRequest) {
               }
 
               if (condition.type === 'variable' && condition.variableName) {
+                // Get value from nodeResult.data
                 let value = nodeResult.data?.[condition.variableName];
-                const compareValue = condition.value;
+                let compareValue = condition.value;
 
                 // Special handling for common GitHub Issues variables
                 // Support checking labels of the first issue
@@ -179,7 +186,20 @@ export async function POST(request: NextRequest) {
                   }
                 }
 
-                console.log('[Edge] Variable condition:', condition.variableName, condition.operator, value, 'vs', compareValue);
+                // Special handling for issue_count
+                if (condition.variableName === 'issue_count' || condition.variableName === 'issueCount') {
+                  // Try multiple possible sources
+                  value = nodeResult.data?.totalCount || nodeResult.data?.issue_count || nodeResult.data?.issues?.length || 0;
+                }
+
+                console.log('[Edge] Variable condition:', {
+                  variableName: condition.variableName,
+                  operator: condition.operator,
+                  value: value,
+                  compareValue: compareValue,
+                  valueType: typeof value,
+                  compareValueType: typeof compareValue
+                });
 
                 switch (condition.operator) {
                   case 'equals':
@@ -189,7 +209,10 @@ export async function POST(request: NextRequest) {
                       console.log('[Edge] Array equals check:', result);
                       return result;
                     }
-                    return value == compareValue;
+                    // Loose equality for number/string comparison
+                    const equalsResult = value == compareValue;
+                    console.log('[Edge] Equals check:', equalsResult);
+                    return equalsResult;
 
                   case 'notEquals':
                     // If value is array, check if compareValue is NOT in the array
@@ -198,13 +221,25 @@ export async function POST(request: NextRequest) {
                       console.log('[Edge] Array notEquals check:', result);
                       return result;
                     }
-                    return value != compareValue;
+                    const notEqualsResult = value != compareValue;
+                    console.log('[Edge] NotEquals check:', notEqualsResult);
+                    return notEqualsResult;
 
                   case 'greaterThan':
-                    return value > compareValue;
+                    // Convert to numbers for comparison
+                    const numValue = Number(value);
+                    const numCompare = Number(compareValue);
+                    const gtResult = numValue > numCompare;
+                    console.log('[Edge] GreaterThan check:', numValue, '>', numCompare, '=', gtResult);
+                    return gtResult;
 
                   case 'lessThan':
-                    return value < compareValue;
+                    // Convert to numbers for comparison
+                    const numValueLt = Number(value);
+                    const numCompareLt = Number(compareValue);
+                    const ltResult = numValueLt < numCompareLt;
+                    console.log('[Edge] LessThan check:', numValueLt, '<', numCompareLt, '=', ltResult);
+                    return ltResult;
 
                   case 'contains':
                     // If value is array, check if any element contains compareValue
@@ -216,20 +251,27 @@ export async function POST(request: NextRequest) {
                       return result;
                     }
                     // String contains
-                    return String(value).includes(String(compareValue));
+                    const containsResult = String(value).toLowerCase().includes(String(compareValue).toLowerCase());
+                    console.log('[Edge] String contains check:', containsResult);
+                    return containsResult;
 
                   case 'exists':
-                    return value !== undefined && value !== null;
+                    const existsResult = value !== undefined && value !== null;
+                    console.log('[Edge] Exists check:', existsResult);
+                    return existsResult;
 
                   case 'notExists':
-                    return value === undefined || value === null;
+                    const notExistsResult = value === undefined || value === null;
+                    console.log('[Edge] NotExists check:', notExistsResult);
+                    return notExistsResult;
 
                   default:
+                    console.log('[Edge] Unknown operator:', condition.operator, '- defaulting to true');
                     return true;
                 }
               }
 
-              console.log('[Edge] Unknown condition type, defaulting to true');
+              console.log('[Edge] Unknown condition type:', condition.type, '- defaulting to true');
               return true;
             };
 
@@ -382,13 +424,12 @@ export async function POST(request: NextRequest) {
 
                   // Step 2B: Load and merge category config (if service belongs to a category)
                   try {
-                    const categoryRes = await fetch(`${request.nextUrl.origin}/api/service-categories/${config.id}/config?projectPath=${encodeURIComponent(projectPath)}`);
-                    if (categoryRes.ok) {
-                      const categoryData = await categoryRes.json();
-                      if (categoryData.configValues) {
-                        console.log(`[executeService] Loaded category config for ${config.id}:`, categoryData.configValues);
-                        Object.assign(finalConfigValues, categoryData.configValues);
-                      }
+                    // Direct import to bypass authentication middleware
+                    const categoryManager = getServiceCategoryManager();
+                    const categoryConfigValues = await categoryManager.getServiceCategoryConfig(projectPath, config.category);
+                    if (categoryConfigValues && Object.keys(categoryConfigValues).length > 0) {
+                      console.log(`[executeService] Loaded category config for ${config.id}:`, categoryConfigValues);
+                      Object.assign(finalConfigValues, categoryConfigValues);
                     }
                   } catch (error: any) {
                     console.log(`[executeService] No category config for service ${config.id}: ${error.message}`);
@@ -405,6 +446,12 @@ export async function POST(request: NextRequest) {
                       const normalizedPath = projectPath.startsWith('~/')
                         ? path.join(process.env.HOME || '', projectPath.slice(2))
                         : projectPath;
+
+                      console.log(`[executeService] Prisma query params:`, {
+                        projectPath: normalizedPath,
+                        nodeId: workflowNode.nodeId,
+                        originalProjectPath: projectPath
+                      });
 
                       const nodeConfig = await prisma.serviceConfig.findUnique({
                         where: {
@@ -1077,14 +1124,14 @@ async function executeService(
                     };
 
                     // Check if we should fail when no issues found
-                    // Default to true (stop workflow) unless explicitly set to false
-                    const failOnNoIssues = serviceConfig.configValues?.fail_on_no_issues !== 'false';
+                    // Default to false (continue workflow) unless explicitly set to true
+                    const failOnNoIssues = serviceConfig.configValues?.fail_on_no_issues === 'true';
                     if (failOnNoIssues) {
-                      onOutput(`❌ No issues found - stopping workflow (disable "Stop Workflow if No Issues" to continue anyway)`);
+                      onOutput(`❌ No issues found - stopping workflow (enable "Continue if No Issues" to avoid this)`);
                       reject(new Error('No issues found matching the filters'));
                       return;
                     }
-                    onOutput(`ℹ️  No issues found but continuing workflow (Stop Workflow if No Issues is disabled)`);
+                    onOutput(`ℹ️  No issues found but continuing workflow`);
                   }
 
                   resolve();
@@ -1831,6 +1878,367 @@ async function executeService(
 
         } catch (error: any) {
           onOutput(`❌ GitHub Issue Updater error: ${error.message}`);
+          throw error;
+        }
+        break;
+
+      case 'jira-issues':
+        // Jira Issues Service
+        onOutput(`📋 Jira Issues service starting...`);
+
+        // Get Jira configuration from category or service config
+        const jiraConfig = await getJiraConfiguration(projectPath, serviceConfig);
+        const jiraUrl = jiraConfig.jiraUrl;
+        const jiraEmail = jiraConfig.jiraEmail;
+        const jiraApiToken = jiraConfig.jiraApiToken;
+        const projectKey = jiraConfig.defaultProject;
+        const jqlQuery = serviceConfig.configValues?.jql_query || '';
+        const maxResults = parseInt(serviceConfig.configValues?.max_results || '50');
+        const statusFilter = serviceConfig.configValues?.status_filter || '';
+        const labelsFilter = serviceConfig.configValues?.labels_filter || '';
+        const assigneeFilter = serviceConfig.configValues?.assignee_filter || '';
+
+        if (!jiraUrl || !jiraEmail || !jiraApiToken) {
+          throw new Error('Jira configuration incomplete: URL, email, and API token are required. Please configure the Jira Service Category.');
+        }
+
+        if (!projectKey) {
+          throw new Error('Jira project key is required. Please configure it in the service or the Jira Service Category.');
+        }
+
+        onOutput(`📦 Jira Project: ${projectKey}`);
+        onOutput(`🔍 Max Results: ${maxResults}`);
+
+        try {
+          // Build JQL query
+          let finalJql = jqlQuery;
+          if (!finalJql) {
+            // Build JQL from filters if no custom query provided
+            const jqlParts: string[] = [`project = ${projectKey}`];
+
+            if (statusFilter) {
+              const statuses = statusFilter.split(',').map(s => `"${s.trim()}"`).join(', ');
+              jqlParts.push(`status IN (${statuses})`);
+            }
+
+            if (labelsFilter) {
+              const labels = labelsFilter.split(',').map(l => l.trim());
+              labels.forEach(label => jqlParts.push(`labels = "${label}"`));
+            }
+
+            if (assigneeFilter) {
+              jqlParts.push(`assignee = ${assigneeFilter}`);
+            }
+
+            finalJql = jqlParts.join(' AND ');
+          }
+
+          onOutput(`🔍 JQL Query: ${finalJql}`);
+
+          // Fetch issues from Jira
+          const auth = Buffer.from(`${jiraEmail}:${jiraApiToken}`).toString('base64');
+          const searchUrl = `${jiraUrl}/rest/api/3/search`;
+
+          const response = await fetch(searchUrl, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Basic ${auth}`,
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: JSON.stringify({
+              jql: finalJql,
+              maxResults: maxResults,
+              fields: ['summary', 'status', 'assignee', 'labels', 'created', 'updated', 'description', 'issuetype', 'priority'],
+            }),
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Jira API error: ${response.status} - ${errorText}`);
+          }
+
+          const result = await response.json();
+          const issues = result.issues || [];
+
+          onOutput(`✅ Found ${issues.length} issue(s)`);
+
+          if (issues.length > 0) {
+            // Format issue data for agents
+            const jiraIssueData = issues.map((issue: any) => ({
+              key: issue.key,
+              summary: issue.fields.summary,
+              status: issue.fields.status?.name,
+              assignee: issue.fields.assignee?.displayName || 'Unassigned',
+              labels: issue.fields.labels || [],
+              created: issue.fields.created,
+              updated: issue.fields.updated,
+              description: issue.fields.description,
+              issueType: issue.fields.issuetype?.name,
+              priority: issue.fields.priority?.name,
+              url: `${jiraUrl}/browse/${issue.key}`,
+            }));
+
+            // Display first few issues
+            onOutput(`\n📋 Issues:`);
+            jiraIssueData.slice(0, 5).forEach((issue: any) => {
+              onOutput(`  #${issue.key}: ${issue.summary}`);
+              onOutput(`    Status: ${issue.status} | Assignee: ${issue.assignee}`);
+              if (issue.labels.length > 0) {
+                onOutput(`    Labels: ${issue.labels.join(', ')}`);
+              }
+            });
+
+            if (jiraIssueData.length > 5) {
+              onOutput(`  ... and ${jiraIssueData.length - 5} more`);
+            }
+
+            // Return data for next nodes
+            return {
+              issues: jiraIssueData,
+              count: jiraIssueData.length,
+              serviceType: 'jira-issues',
+              projectKey: projectKey,
+            };
+          } else {
+            onOutput(`ℹ️  No issues found matching the criteria`);
+            return {
+              issues: [],
+              count: 0,
+              serviceType: 'jira-issues',
+              projectKey: projectKey,
+            };
+          }
+        } catch (error: any) {
+          onOutput(`❌ Jira Issues error: ${error.message}`);
+          throw error;
+        }
+        break;
+
+      case 'jira-updater':
+        // Jira Issue Updater Service
+        onOutput(`✏️  Jira Issue Updater service starting...`);
+
+        // Get Jira configuration from category or service config
+        const updaterJiraConfig = await getJiraConfiguration(projectPath, serviceConfig);
+        const updaterJiraUrl = updaterJiraConfig.jiraUrl;
+        const updaterJiraEmail = updaterJiraConfig.jiraEmail;
+        const updaterJiraApiToken = updaterJiraConfig.jiraApiToken;
+        const addComment = serviceConfig.configValues?.add_comment !== 'false';
+        const commentTemplate = serviceConfig.configValues?.comment_template || '';
+        const transitionStatus = serviceConfig.configValues?.transition_status || '';
+        const assignTo = serviceConfig.configValues?.assign_to || '';
+        const addLabels = serviceConfig.configValues?.add_labels || '';
+        const removeLabels = serviceConfig.configValues?.remove_labels || '';
+
+        if (!updaterJiraUrl || !updaterJiraEmail || !updaterJiraApiToken) {
+          throw new Error('Jira configuration incomplete: URL, email, and API token are required. Please configure the Jira Service Category.');
+        }
+
+        // Find Jira issue from previous outputs
+        const jiraIssuesOutput = previousOutputs.find(o => o.data?.serviceType === 'jira-issues');
+        if (!jiraIssuesOutput?.data?.issues || jiraIssuesOutput.data.issues.length === 0) {
+          onOutput(`⚠️  No Jira issues found in previous outputs`);
+          break;
+        }
+
+        const jiraIssue = jiraIssuesOutput.data.issues[0];
+        const issueKey = jiraIssue.key;
+
+        onOutput(`📝 Updating issue: ${issueKey}`);
+
+        try {
+          const auth = Buffer.from(`${updaterJiraEmail}:${updaterJiraApiToken}`).toString('base64');
+          const headers = {
+            'Authorization': `Basic ${auth}`,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          };
+
+          // Add comment if configured
+          if (addComment && commentTemplate) {
+            // Replace placeholders in comment
+            let comment = commentTemplate;
+
+            // Find branch name from previous outputs
+            const branchOutput = previousOutputs.find(o => o.data?.branch);
+            if (branchOutput?.data?.branch) {
+              comment = comment.replace(/{branch_name}/g, branchOutput.data.branch);
+            }
+
+            // Find PR URL from previous outputs
+            const prOutput = previousOutputs.find(o => o.data?.prUrl);
+            if (prOutput?.data?.prUrl) {
+              comment = comment.replace(/{pr_url}/g, prOutput.data.prUrl);
+            }
+
+            // Find agent name from previous outputs
+            const agentOutput = previousOutputs.find(o => o.data?.agentName);
+            if (agentOutput?.data?.agentName) {
+              comment = comment.replace(/{agent_name}/g, agentOutput.data.agentName);
+            }
+
+            onOutput(`💬 Adding comment...`);
+
+            const commentUrl = `${updaterJiraUrl}/rest/api/3/issue/${issueKey}/comment`;
+            const commentResponse = await fetch(commentUrl, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({
+                body: {
+                  type: 'doc',
+                  version: 1,
+                  content: [
+                    {
+                      type: 'paragraph',
+                      content: [
+                        {
+                          type: 'text',
+                          text: comment,
+                        },
+                      ],
+                    },
+                  ],
+                },
+              }),
+            });
+
+            if (commentResponse.ok) {
+              onOutput(`✅ Comment added successfully`);
+            } else {
+              const errorText = await commentResponse.text();
+              onOutput(`⚠️  Failed to add comment: ${commentResponse.status} - ${errorText}`);
+            }
+          }
+
+          // Update labels if configured
+          if (addLabels || removeLabels) {
+            onOutput(`🏷️  Updating labels...`);
+
+            const updateData: any = { fields: {} };
+
+            // Get current labels
+            const issueUrl = `${updaterJiraUrl}/rest/api/3/issue/${issueKey}?fields=labels`;
+            const issueResponse = await fetch(issueUrl, { headers });
+            const issueData = await issueResponse.json();
+            let currentLabels = issueData.fields?.labels || [];
+
+            // Add new labels
+            if (addLabels) {
+              const newLabels = addLabels.split(',').map(l => l.trim());
+              currentLabels = [...new Set([...currentLabels, ...newLabels])];
+              onOutput(`   Adding labels: ${newLabels.join(', ')}`);
+            }
+
+            // Remove labels
+            if (removeLabels) {
+              const labelsToRemove = removeLabels.split(',').map(l => l.trim());
+              currentLabels = currentLabels.filter((l: string) => !labelsToRemove.includes(l));
+              onOutput(`   Removing labels: ${labelsToRemove.join(', ')}`);
+            }
+
+            updateData.fields.labels = currentLabels;
+
+            const updateUrl = `${updaterJiraUrl}/rest/api/3/issue/${issueKey}`;
+            const updateResponse = await fetch(updateUrl, {
+              method: 'PUT',
+              headers,
+              body: JSON.stringify(updateData),
+            });
+
+            if (updateResponse.ok) {
+              onOutput(`✅ Labels updated successfully`);
+            } else {
+              const errorText = await updateResponse.text();
+              onOutput(`⚠️  Failed to update labels: ${updateResponse.status} - ${errorText}`);
+            }
+          }
+
+          // Transition status if configured
+          if (transitionStatus) {
+            onOutput(`🔄 Transitioning to status: ${transitionStatus}...`);
+
+            // Get available transitions
+            const transitionsUrl = `${updaterJiraUrl}/rest/api/3/issue/${issueKey}/transitions`;
+            const transitionsResponse = await fetch(transitionsUrl, { headers });
+            const transitionsData = await transitionsResponse.json();
+
+            // Find transition ID for the target status
+            const transition = transitionsData.transitions?.find((t: any) =>
+              t.name.toLowerCase() === transitionStatus.toLowerCase() ||
+              t.to.name.toLowerCase() === transitionStatus.toLowerCase()
+            );
+
+            if (transition) {
+              const transitionResponse = await fetch(transitionsUrl, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({
+                  transition: { id: transition.id },
+                }),
+              });
+
+              if (transitionResponse.ok) {
+                onOutput(`✅ Issue transitioned to: ${transitionStatus}`);
+              } else {
+                const errorText = await transitionResponse.text();
+                onOutput(`⚠️  Failed to transition: ${transitionResponse.status} - ${errorText}`);
+              }
+            } else {
+              onOutput(`⚠️  Transition to "${transitionStatus}" not available`);
+              onOutput(`   Available transitions: ${transitionsData.transitions?.map((t: any) => t.name).join(', ')}`);
+            }
+          }
+
+          // Update assignee if configured
+          if (assignTo) {
+            onOutput(`👤 Updating assignee...`);
+
+            let assigneeAccountId = null;
+            if (assignTo === 'currentUser()') {
+              // Get current user's account ID
+              const myselfUrl = `${updaterJiraUrl}/rest/api/3/myself`;
+              const myselfResponse = await fetch(myselfUrl, { headers });
+              const myselfData = await myselfResponse.json();
+              assigneeAccountId = myselfData.accountId;
+            } else {
+              // Search for user by username/email
+              const userSearchUrl = `${updaterJiraUrl}/rest/api/3/user/search?query=${assignTo}`;
+              const userResponse = await fetch(userSearchUrl, { headers });
+              const users = await userResponse.json();
+              if (users && users.length > 0) {
+                assigneeAccountId = users[0].accountId;
+              }
+            }
+
+            if (assigneeAccountId) {
+              const assignUrl = `${updaterJiraUrl}/rest/api/3/issue/${issueKey}/assignee`;
+              const assignResponse = await fetch(assignUrl, {
+                method: 'PUT',
+                headers,
+                body: JSON.stringify({ accountId: assigneeAccountId }),
+              });
+
+              if (assignResponse.ok) {
+                onOutput(`✅ Assignee updated successfully`);
+              } else {
+                const errorText = await assignResponse.text();
+                onOutput(`⚠️  Failed to update assignee: ${assignResponse.status} - ${errorText}`);
+              }
+            } else {
+              onOutput(`⚠️  User not found: ${assignTo}`);
+            }
+          }
+
+          onOutput(`✅ Issue update completed`);
+
+          return {
+            issueKey: issueKey,
+            updated: true,
+            serviceType: 'jira-updater',
+          };
+        } catch (error: any) {
+          onOutput(`❌ Jira Issue Updater error: ${error.message}`);
           throw error;
         }
         break;

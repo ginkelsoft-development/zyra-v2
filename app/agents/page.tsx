@@ -44,12 +44,29 @@ export default function AgentsPage() {
     if (!confirm('Are you sure you want to delete this agent?')) return;
 
     try {
-      const res = await fetch(`/api/agents?id=${agentId}`, { method: 'DELETE' });
+      const res = await fetch(`/api/agents/${agentId}`, { method: 'DELETE' });
+      const data = await res.json();
+
       if (res.ok) {
+        alert('Agent deleted successfully');
         loadAgents();
+      } else {
+        // Show error message from server
+        if (res.status === 409 && data.workflowsUsing) {
+          // Agent is in use
+          const workflowNames = data.workflowsUsing.map((w: any) => w.workflowName).join(', ');
+          alert(
+            `Cannot delete agent!\n\n` +
+            `This agent is currently used in the following workflow(s):\n${workflowNames}\n\n` +
+            `Please remove the agent from these workflows before deleting it.`
+          );
+        } else {
+          alert(`Failed to delete agent: ${data.error || 'Unknown error'}`);
+        }
       }
     } catch (error) {
       console.error('Failed to delete agent:', error);
+      alert('Failed to delete agent. Please try again.');
     }
   };
 
