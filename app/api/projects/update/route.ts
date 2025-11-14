@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
+import { prisma } from '@/lib/db/prisma';
 
 export async function POST(request: NextRequest) {
   try {
@@ -41,6 +42,19 @@ export async function POST(request: NextRequest) {
       // Move the project
       fs.renameSync(oldPath, newPath);
 
+      // Update database if project exists
+      try {
+        await prisma.project.update({
+          where: { path: oldPath },
+          data: {
+            path: newPath,
+            name: newName || path.basename(newPath),
+          },
+        });
+      } catch (dbError) {
+        console.log('No database entry to update or error:', dbError);
+      }
+
       return NextResponse.json({
         success: true,
         message: 'Project moved successfully',
@@ -65,6 +79,19 @@ export async function POST(request: NextRequest) {
 
       fs.renameSync(oldPath, newFullPath);
 
+      // Update database if project exists
+      try {
+        await prisma.project.update({
+          where: { path: oldPath },
+          data: {
+            path: newFullPath,
+            name: newName,
+          },
+        });
+      } catch (dbError) {
+        console.log('No database entry to update or error:', dbError);
+      }
+
       return NextResponse.json({
         success: true,
         message: 'Project renamed successfully',
@@ -75,12 +102,24 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // If only the name in database needs updating (path stays the same)
+    if (newName) {
+      try {
+        await prisma.project.update({
+          where: { path: oldPath },
+          data: { name: newName },
+        });
+      } catch (dbError) {
+        console.log('No database entry to update or error:', dbError);
+      }
+    }
+
     return NextResponse.json({
       success: true,
-      message: 'No changes made',
+      message: 'Project updated successfully',
       project: {
         path: oldPath,
-        name: path.basename(oldPath)
+        name: newName || path.basename(oldPath)
       }
     });
 

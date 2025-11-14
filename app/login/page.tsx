@@ -8,12 +8,14 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [loginMethod, setLoginMethod] = useState<'biometric' | 'password'>('password');
   const [isWebAuthnSupported, setIsWebAuthnSupported] = useState(true); // Assume supported initially
   const [mounted, setMounted] = useState(false);
 
   // Registration form
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
   // Check WebAuthn support client-side only
   useEffect(() => {
@@ -22,6 +24,42 @@ export default function LoginPage() {
       typeof window !== 'undefined' && window.PublicKeyCredential !== undefined
     );
   }, []);
+
+  /**
+   * Handle password login
+   */
+  const handlePasswordLogin = async () => {
+    if (!email || !password) {
+      setError('Vul je email en wachtwoord in');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError('');
+
+      const response = await fetch('/api/auth/login/password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Login mislukt');
+      }
+
+      // Success - redirect to home
+      router.push('/');
+      router.refresh();
+    } catch (err: any) {
+      console.error('Login error:', err);
+      setError(err.message || 'Login mislukt. Probeer het opnieuw.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   /**
    * Handle biometric login
@@ -277,6 +315,63 @@ export default function LoginPage() {
             </button>
           </div>
 
+          {/* Login Method Toggle (only for login mode) */}
+          {mode === 'login' && (
+            <div className="flex gap-2 mb-6 bg-gray-900/50 p-1 rounded-lg">
+              <button
+                onClick={() => setLoginMethod('password')}
+                className={`flex-1 py-2 px-4 rounded-md font-medium transition-all ${
+                  loginMethod === 'password'
+                    ? 'bg-purple-600 text-white shadow-lg'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                Wachtwoord
+              </button>
+              <button
+                onClick={() => setLoginMethod('biometric')}
+                className={`flex-1 py-2 px-4 rounded-md font-medium transition-all ${
+                  loginMethod === 'biometric'
+                    ? 'bg-purple-600 text-white shadow-lg'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                Biometrisch
+              </button>
+            </div>
+          )}
+
+          {/* Login Form - Password */}
+          {mode === 'login' && loginMethod === 'password' && (
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Email</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full px-4 py-3 bg-gray-900/50 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition"
+                  placeholder="je@email.com"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Wachtwoord</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-4 py-3 bg-gray-900/50 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition"
+                  placeholder="••••••••"
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      handlePasswordLogin();
+                    }
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
           {/* Registration Form */}
           {mode === 'register' && (
             <div className="space-y-4 mb-6">
@@ -310,9 +405,15 @@ export default function LoginPage() {
             </div>
           )}
 
-          {/* Biometric Button */}
+          {/* Login/Register Button */}
           <button
-            onClick={mode === 'login' ? handleBiometricLogin : handleBiometricRegister}
+            onClick={() => {
+              if (mode === 'login') {
+                loginMethod === 'password' ? handlePasswordLogin() : handleBiometricLogin();
+              } else {
+                handleBiometricRegister();
+              }
+            }}
             disabled={loading}
             className="w-full py-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transform hover:scale-105 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center gap-3"
           >
@@ -326,12 +427,23 @@ export default function LoginPage() {
               </>
             ) : (
               <>
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 008 4.07M3 15.364c.64-1.319 1-2.8 1-4.364 0-1.457.39-2.823 1.07-4" />
-                </svg>
-                <span>
-                  {mode === 'login' ? 'Inloggen met vingerafdruk' : 'Registreer met vingerafdruk'}
-                </span>
+                {mode === 'login' && loginMethod === 'password' ? (
+                  <>
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                    </svg>
+                    <span>Inloggen</span>
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 008 4.07M3 15.364c.64-1.319 1-2.8 1-4.364 0-1.457.39-2.823 1.07-4" />
+                    </svg>
+                    <span>
+                      {mode === 'login' ? 'Inloggen met vingerafdruk' : 'Registreer met vingerafdruk'}
+                    </span>
+                  </>
+                )}
               </>
             )}
           </button>
@@ -340,13 +452,15 @@ export default function LoginPage() {
           <div className="mt-6 text-center space-y-2">
             <p className="text-sm text-gray-400">
               {mode === 'login'
-                ? 'Gebruik je vingerafdruk, gezichtsherkenning of beveiligingssleutel om in te loggen'
+                ? loginMethod === 'password'
+                  ? 'Log in met je email en wachtwoord'
+                  : 'Gebruik je vingerafdruk, gezichtsherkenning of beveiligingssleutel om in te loggen'
                 : 'Registreer je vingerafdruk of gezichtsherkenning voor veilige toegang'
               }
             </p>
             {mode === 'login' && (
               <p className="text-xs text-gray-500">
-                Geen account? Klik op <span className="text-blue-400">Registreren</span>
+                Geen account? Neem contact op met je administrator
               </p>
             )}
           </div>

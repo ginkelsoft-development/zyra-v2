@@ -69,6 +69,15 @@ export async function POST(
     const serviceId = params.serviceId;
     const { configValues, nodeId } = await request.json();
 
+    // Debug logging
+    console.log('[API ServiceConfig POST] Request:', {
+      projectPath,
+      serviceId,
+      nodeId: nodeId || 'NOT PROVIDED',
+      hasNodeId: !!nodeId,
+      configKeys: Object.keys(configValues || {})
+    });
+
     // Normalize path
     const normalizedPath = projectPath.startsWith('~/')
       ? path.join(process.env.HOME || '', projectPath.slice(2))

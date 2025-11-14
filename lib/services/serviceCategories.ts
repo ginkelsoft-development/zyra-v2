@@ -170,12 +170,57 @@ export const EmailServiceCategory: ServiceCategory = {
 };
 
 // ============================================================================
+// JIRA SERVICE CATEGORY
+// ============================================================================
+export const JiraServiceCategory: ServiceCategory = {
+  id: 'jira',
+  name: 'Jira',
+  description: 'Shared configuration for all Jira-related services (Issues, Updates, Transitions)',
+  emoji: '📋',
+  configVariables: [
+    {
+      key: 'jiraUrl',
+      label: 'Jira URL',
+      description: 'Your Jira instance URL (e.g., "https://yourcompany.atlassian.net")',
+      type: 'text',
+      required: true,
+      placeholder: 'https://yourcompany.atlassian.net',
+    },
+    {
+      key: 'jiraEmail',
+      label: 'Jira Email',
+      description: 'Email address associated with your Jira account',
+      type: 'text',
+      required: true,
+      placeholder: 'user@company.com',
+    },
+    {
+      key: 'jiraApiToken',
+      label: 'Jira API Token',
+      description: 'API token for Jira authentication (create at https://id.atlassian.com/manage-profile/security/api-tokens)',
+      type: 'password',
+      required: true,
+      placeholder: 'your-api-token',
+    },
+    {
+      key: 'defaultProject',
+      label: 'Default Project Key',
+      description: 'Default Jira project key to use (e.g., "PROJ" or "DEV")',
+      type: 'text',
+      required: false,
+      placeholder: 'PROJ',
+    },
+  ],
+};
+
+// ============================================================================
 // REGISTRY OF ALL CATEGORIES
 // ============================================================================
 export const SERVICE_CATEGORIES: ServiceCategory[] = [
   GitHubServiceCategory,
   SlackServiceCategory,
   EmailServiceCategory,
+  JiraServiceCategory,
 ];
 
 /**
