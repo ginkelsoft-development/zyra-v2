@@ -947,7 +947,7 @@ async function executeService(
         const excludeLabels: string[] = [];
 
         if (labels) {
-          labels.split(',').forEach(label => {
+          labels.split(',').forEach((label: string) => {
             const trimmed = label.trim();
             if (trimmed.startsWith('!')) {
               // Exclude label (remove the ! prefix)
@@ -1393,7 +1393,7 @@ async function executeService(
           if (commitFiles === '.') {
             await execPromise(`cd "${projectPath}" && git add .`);
           } else {
-            const files = commitFiles.split(',').map(f => f.trim()).join(' ');
+            const files = commitFiles.split(',').map((f: string) => f.trim()).join(' ');
             await execPromise(`cd "${projectPath}" && git add ${files}`);
           }
 
@@ -1404,7 +1404,7 @@ async function executeService(
           onOutput(`🔍 DEBUG: Git status output:`);
           if (hasChanges) {
             const statusLines = statusResult.stdout.trim().split('\n');
-            statusLines.forEach(line => onOutput(`   ${line}`));
+            statusLines.forEach((line: string) => onOutput(`   ${line}`));
           } else {
             onOutput(`   (no changes)`);
           }
@@ -1616,7 +1616,7 @@ async function executeService(
             const recentCommits = await execPromise(`cd "${projectPath}" && git log origin/${branch} --oneline -5`);
             onOutput(`🔍 DEBUG: Recent commits on origin/${branch}:`);
             const commitLines = recentCommits.stdout.trim().split('\n');
-            commitLines.forEach(line => onOutput(`   ${line}`));
+            commitLines.forEach((line: string) => onOutput(`   ${line}`));
           } catch (e: any) {
             onOutput(`⚠️  Could not get recent commits: ${e.message}`);
           }
@@ -1853,7 +1853,7 @@ async function executeService(
 
           // Remove labels
           if (removeLabels) {
-            const labelsToRemove = removeLabels.split(',').map(l => l.trim());
+            const labelsToRemove = removeLabels.split(',').map((l: string) => l.trim());
             for (const label of labelsToRemove) {
               onOutput(`🏷️  Removing label "${label}"...`);
               await execPromise(`cd "${projectPath}" && gh issue edit ${issueNumber} --remove-label "${label}"`);

@@ -6,19 +6,7 @@ import PageContainer from '@/components/layout/PageContainer';
 import PageHeader from '@/components/layout/PageHeader';
 import StatCard from '@/components/layout/StatCard';
 import EmptyState from '@/components/layout/EmptyState';
-
-interface AgentConfig {
-  id: string;
-  name: string;
-  role: string;
-  description: string;
-  capabilities: string;
-  tools: string;
-  systemPrompt: string;
-  fullPrompt: string;
-  color: string;
-  emoji: string;
-}
+import { AgentConfig } from '@/lib/services/agentManager';
 
 export default function AgentsPage() {
   const [agents, setAgents] = useState<AgentConfig[]>([]);

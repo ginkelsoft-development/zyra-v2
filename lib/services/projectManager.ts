@@ -226,6 +226,13 @@ export class ProjectManager {
       configValues: c.configValues as Record<string, string>,
     }));
   }
+
+  /**
+   * Get all agents for a project (alias for getProjectAgentConfigs)
+   */
+  async getProjectAgents(projectPath: string): Promise<ProjectAgentConfig[]> {
+    return this.getProjectAgentConfigs(projectPath);
+  }
 }
 
 // Export singleton instance

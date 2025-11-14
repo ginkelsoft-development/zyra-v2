@@ -455,6 +455,69 @@ export class WorkflowManager {
       isDefault: workflow.isDefault,
     };
   }
+
+  /**
+   * Get default workflow for a project
+   */
+  async getDefaultWorkflow(projectPath: string): Promise<SavedWorkflow | null> {
+    const workflow = await prisma.workflow.findFirst({
+      where: {
+        projectPath,
+        isDefault: true,
+      },
+      include: {
+        nodes: true,
+        edges: {
+          include: {
+            edgeConditions: true,
+          },
+        },
+        triggers: true,
+      },
+    });
+
+    return workflow ? this.formatWorkflow(workflow) : null;
+  }
+
+  /**
+   * Set default workflow for a project
+   */
+  async setDefaultWorkflow(projectPath: string, workflowId: string): Promise<void> {
+    // Unset all current defaults for this project
+    await prisma.workflow.updateMany({
+      where: { projectPath, isDefault: true },
+      data: { isDefault: false },
+    });
+
+    // Set the new default
+    await prisma.workflow.update({
+      where: { id: workflowId },
+      data: { isDefault: true },
+    });
+  }
+
+  /**
+   * Get workflow templates (example workflows)
+   */
+  async getWorkflowTemplates(): Promise<any[]> {
+    // Return some basic templates
+    return [
+      {
+        id: 'template-ci-cd',
+        name: 'CI/CD Pipeline',
+        description: 'Standard continuous integration and deployment workflow',
+        nodes: [],
+        edges: [],
+      },
+      {
+        id: 'template-review',
+        name: 'Code Review',
+        description: 'Automated code review workflow',
+        nodes: [],
+        edges: [],
+      },
+    ];
+  }
 }
 
 // Export singleton instance

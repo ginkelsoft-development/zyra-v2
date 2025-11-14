@@ -2,7 +2,7 @@
 
 # CLI Tools Installation Script
 # Installeert alle benodigde CLI tools voor Insurance Orchestrator
-# Ondersteunt: GitHub CLI, Claude Code CLI, Jira CLI, Slack CLI, Docker
+# Ondersteunt: GitHub CLI, Claude Code CLI, Jira CLI
 
 set -e
 
@@ -248,36 +248,6 @@ EOF
     print_success "Jira CLI geconfigureerd"
 }
 
-# Installeer Docker
-install_docker() {
-    print_header "Docker Installatie"
-
-    read -p "Wil je Docker installeren? (y/n) " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        print_info "Docker installatie overgeslagen"
-        return 0
-    fi
-
-    if command -v docker &> /dev/null; then
-        print_success "Docker is al geïnstalleerd ($(docker --version))"
-        return 0
-    fi
-
-    print_info "Installeren van Docker..."
-
-    # Installeer Docker via officiële script
-    curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
-    sudo sh /tmp/get-docker.sh
-    rm /tmp/get-docker.sh
-
-    # Voeg gebruiker toe aan docker groep
-    sudo usermod -aG docker $USER
-
-    print_success "Docker geïnstalleerd"
-    print_warning "Log uit en weer in om docker zonder sudo te kunnen gebruiken"
-}
-
 # Installeer andere nuttige tools
 install_additional_tools() {
     print_header "Extra Tools Installatie"
@@ -348,13 +318,6 @@ test_installations() {
         print_info "Jira CLI: Niet geïnstalleerd (optioneel)"
     fi
 
-    # Docker
-    if command -v docker &> /dev/null; then
-        print_success "Docker: $(docker --version)"
-    else
-        print_info "Docker: Niet geïnstalleerd (optioneel)"
-    fi
-
     # Node.js
     if command -v node &> /dev/null; then
         print_success "Node.js: $(node --version)"
@@ -396,10 +359,6 @@ EOF
         echo "- Jira CLI: Installed" >> "$SUMMARY_FILE"
     fi
 
-    if command -v docker &> /dev/null; then
-        echo "- Docker: $(docker --version)" >> "$SUMMARY_FILE"
-    fi
-
     cat >> "$SUMMARY_FILE" << EOF
 
 Configuratie Bestanden:
@@ -424,11 +383,6 @@ Jira CLI:
   jira ls                     # Lijst issues
   jira view ISSUE-123         # Bekijk issue details
   jira create                 # Maak nieuwe issue
-
-Docker:
-  docker ps                   # Lijst containers
-  docker images               # Lijst images
-  docker-compose up           # Start services
 
 Voor meer informatie, zie de documentatie van elke tool.
 EOF
@@ -457,8 +411,6 @@ main() {
     install_jira_cli
     configure_jira_cli
 
-    install_docker
-
     install_additional_tools
 
     # Tests en summary
@@ -469,9 +421,8 @@ main() {
     print_success "Alle geselecteerde tools zijn geïnstalleerd en geconfigureerd"
     echo ""
     print_info "Volgende stappen:"
-    echo "  1. Als je Docker hebt geïnstalleerd, log uit en weer in"
-    echo "  2. Test de tools met de commando's in: $HOME/cli-tools-setup-summary.txt"
-    echo "  3. Continue met de applicatie deployment (zie DEPLOYMENT.md)"
+    echo "  1. Test de tools met de commando's in: $HOME/cli-tools-setup-summary.txt"
+    echo "  2. Continue met de applicatie deployment (zie DEPLOYMENT.md)"
     echo ""
 }
 

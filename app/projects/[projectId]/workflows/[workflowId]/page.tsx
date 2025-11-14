@@ -16,6 +16,7 @@ import ReactFlow, {
   EdgeProps,
   getBezierPath,
   ConnectionLineType,
+  MarkerType,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import AgentConfigForm from '@/components/agents/AgentConfigForm';
@@ -122,6 +123,9 @@ export default function WorkflowPage() {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showSchedulesPanel, setShowSchedulesPanel] = useState(false);
+  const [showProjectOverview, setShowProjectOverview] = useState(false);
+  const [showProjectWizard, setShowProjectWizard] = useState(false);
+  const [showProjectBrowser, setShowProjectBrowser] = useState(false);
 
   // Helper function to add timestamp to log messages
   const getTimestamp = () => {
@@ -149,7 +153,7 @@ export default function WorkflowPage() {
   const [showServiceCategories, setShowServiceCategories] = useState(false);
   // Project and workflow info from URL params
   const [currentProject, setCurrentProject] = useState<string | null>(workflowName);
-  const [currentProjectPath, setCurrentProjectPath] = useState<string>(projectPath);
+  const [currentProjectPath, setCurrentProjectPath] = useState<string | null>(projectPath);
   const [recommendedAgents, setRecommendedAgents] = useState<string[]>([]);
   const [configSidebarOpen, setConfigSidebarOpen] = useState(false);
   const [configAgent, setConfigAgent] = useState<any>(null);
@@ -288,6 +292,8 @@ export default function WorkflowPage() {
 
   // Helper function to check if a service node is configured
   const checkServiceConfigured = async (serviceId: string, nodeId: string): Promise<boolean> => {
+    if (!currentProjectPath) return false;
+
     try {
       // First check node-specific config
       const nodeRes = await fetch(`/api/projects/${encodeURIComponent(currentProjectPath)}/services/${serviceId}/config?nodeId=${encodeURIComponent(nodeId)}`);
@@ -483,7 +489,7 @@ export default function WorkflowPage() {
           // Add curve offset for multiple edges
           ...(edgeCount > 0 && {
             markerEnd: {
-              type: 'arrowclosed' as const,
+              type: MarkerType.ArrowClosed,
               width: 20,
               height: 20,
             },
@@ -678,7 +684,7 @@ export default function WorkflowPage() {
               style: edgeStyle,
               type: 'smoothstep',
               markerEnd: {
-                type: 'arrowclosed' as const,
+                type: MarkerType.ArrowClosed,
                 width: 20,
                 height: 20,
               },
@@ -701,7 +707,7 @@ export default function WorkflowPage() {
 
   // Run workflow with real code generation and real-time updates
   const runWorkflow = async () => {
-    if (!currentProject) {
+    if (!currentProject || !currentProjectPath) {
       alert('⚠️ Please select or create a project first!');
       return;
     }
@@ -1211,7 +1217,7 @@ export default function WorkflowPage() {
     console.log('Available agents:', availableAgents.length);
 
     // Convert saved workflow to ReactFlow nodes
-    const loadedNodes: Node[] = workflow.nodes.map(wfNode => {
+    const loadedNodes: (Node | null)[] = workflow.nodes.map(wfNode => {
       // Handle start node
       if (wfNode.id === 'start') {
         return {
@@ -1687,8 +1693,8 @@ export default function WorkflowPage() {
     }
 
     try {
-      let workflowName = '';
-      let workflowDescription = '';
+      let workflowName: string | null = '';
+      let workflowDescription: string | null = '';
 
       // If we have a current workflow ID and not explicitly asking for name, just update it
       if (currentWorkflowId && !askForName) {
@@ -1782,7 +1788,7 @@ export default function WorkflowPage() {
       if (modKey && event.key === 'e') {
         event.preventDefault();
         if (currentProjectPath) {
-          handleStartWorkflow();
+          runWorkflow();
         }
       }
 
@@ -2560,8 +2566,6 @@ export default function WorkflowPage() {
               </div>
           </div>
         )}
-        </div>
-      )}
 
       {/* Edge Configuration Modal */}
       {editingEdge && (
